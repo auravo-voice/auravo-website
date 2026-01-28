@@ -1,0 +1,42 @@
+---
+import Layout from '../layouts/Layout.astro';
+import VoiceArchetypeQuiz from '../components/quiz/VoiceArchetypeQuiz';
+
+const startPhase = Astro.url.searchParams.get('start') !== null ? 'quiz' : 'intro';
+---
+
+<Layout title="Voice Archetype Quiz - Discover Your Communication Style">
+  <main class="relative">
+    <VoiceArchetypeQuiz client:load startPhase={startPhase} />
+  </main>
+</Layout>
+
+<style>
+  html {
+    scroll-behavior: smooth;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+  button.quiz-next-base.quiz-next-enabled {
+    background: linear-gradient(to right, #3B82F6, #9333EA) !important;
+    color: white !important;
+  }
+</style>
+
+<script is:inline>
+  window.addEventListener('error', function (e) {
+    console.error('[Quiz page] Uncaught error:', e.error || e.message, e.filename, e.lineno, e.colno);
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    console.error('[Quiz page] Unhandled promise rejection:', e.reason);
+  });
+</script>

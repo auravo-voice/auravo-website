@@ -1,0 +1,13 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+<Layout title="Redirecting to Quiz">
+  <main class="relative min-h-screen flex items-center justify-center bg-neutral-950 px-6">
+    <p class="text-neutral-400">
+      Redirecting… <a href="/voice-quiz" class="text-neon-blue underline">Go to quiz</a>
+    </p>
+  </main>
+  <script is:inline>
+    window.location.replace('/voice-quiz');
+  </script>
+</Layout>

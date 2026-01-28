@@ -1,0 +1,26 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Navigation from '../components/home/Navigation';
+import Footer from '../components/home/Footer';
+import Logo from '../components/home/Logo';
+import BookWorkshopForm from '../components/book-workshop/BookWorkshopForm';
+---
+
+<Layout title="Book a Workshop — auravo">
+  <Logo client:load />
+  <Navigation client:load />
+  <main class="min-h-screen pt-24 pb-16 px-4 md:px-6">
+    <div class="max-w-container mx-auto">
+      <header class="text-center mb-12 md:mb-16">
+        <h1 class="text-3xl md:text-4xl font-semibold text-neutral-100 mb-4">
+          Book a workshop
+        </h1>
+        <p class="text-neutral-400 text-lg max-w-xl mx-auto">
+          Tell us what you need—whether you want to run a workshop or bring Auravo to your institution. We’ll get back to you shortly.
+        </p>
+      </header>
+      <BookWorkshopForm client:load />
+    </div>
+  </main>
+  <Footer />
+</Layout>

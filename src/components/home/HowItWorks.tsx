@@ -107,7 +107,7 @@ const HowItWorks = () => {
               return (
                 <motion.div
                   key={step.number}
-                  variants={stepVariants}
+                  variants={stepVariants as any}
                   className={`relative flex items-start gap-6 md:gap-8 group ${
                     isPhaseBreak ? 'mb-8 md:mb-12' : ''
                   }`}

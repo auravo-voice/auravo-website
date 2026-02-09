@@ -66,14 +66,14 @@ const WorkshopsCoaching = () => {
   };
 
   return (
-    <section className="py-16 md:py-20 bg-white dark:bg-neutral-950 relative overflow-hidden fade-in-on-scroll">
+    <section className="py-16 md:py-20 bg-neutral-950 relative overflow-hidden fade-in-on-scroll">
       <div className="max-w-container mx-auto px-4 md:px-6">
         {/* Heading and Paragraph */}
         <div className="text-center mb-12 md:mb-16">
           <h2 className="text-3xl md:text-4xl font-semibold mb-4 bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent">
             Workshops & Coaching
           </h2>
-          <p className="text-lg md:text-xl text-neutral-700 dark:text-neutral-300 max-w-3xl mx-auto">
+          <p className="text-lg md:text-xl text-neutral-300 max-w-3xl mx-auto">
             Interactive, expert-led programs for schools, colleges, and corporates created to foster clarity, calm, and confidence through modern AI-powered voice training.
           </p>
         </div>
@@ -90,10 +90,10 @@ const WorkshopsCoaching = () => {
               <button
                 key={index}
                 onClick={() => handleTrackSelect(index)}
-                className={`w-full text-left px-6 py-4 rounded-lg border transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-950 ${
+                className={`w-full text-left px-6 py-4 rounded-lg border transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950 ${
                   selectedTrack === index
-                    ? 'bg-gradient-to-r from-neon-blue/10 to-neon-purple/10 dark:from-neon-blue/20 dark:to-neon-purple/20 border-neon-blue/50 dark:border-neon-blue/50 text-neutral-900 dark:text-white font-semibold'
-                    : 'bg-transparent border-neutral-200/60 dark:border-neutral-800/60 text-neutral-700 dark:text-neutral-300 hover:border-neon-blue/30 dark:hover:border-neon-blue/30 hover:text-neutral-900 dark:hover:text-white'
+                    ? 'bg-gradient-to-r from-neon-blue/20 to-neon-purple/20 border-neon-blue/50 text-white font-semibold'
+                    : 'bg-transparent border-neutral-800/60 text-neutral-300 hover:border-neon-blue/30 hover:text-white'
                 }`}
                 aria-pressed={selectedTrack === index}
                 aria-label={`Select ${track.title}`}
@@ -109,12 +109,12 @@ const WorkshopsCoaching = () => {
               <motion.div
                 key={selectedTrack}
                 {...transitionConfig}
-                className="h-full p-8 md:p-10 rounded-lg border border-neutral-200/60 dark:border-neutral-800/60 bg-neutral-50/50 dark:bg-neutral-900/50 backdrop-blur-sm"
+                className="h-full p-8 md:p-10 rounded-lg border border-neutral-800/60 bg-neutral-900/50 backdrop-blur-sm"
               >
                 <h3 className="text-2xl md:text-3xl font-semibold mb-4 bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent">
                   {tracks[selectedTrack].title}
                 </h3>
-                <p className="text-lg md:text-xl text-neutral-700 dark:text-neutral-300 leading-relaxed">
+                <p className="text-lg md:text-xl text-neutral-300 leading-relaxed">
                   {tracks[selectedTrack].description}
                 </p>
               </motion.div>
@@ -124,14 +124,14 @@ const WorkshopsCoaching = () => {
 
         {/* Benefits Chips */}
         <div className="mb-10 md:mb-12">
-          <p className="text-sm md:text-base text-neutral-600 dark:text-neutral-400 text-center mb-6">
+          <p className="text-sm md:text-base text-neutral-400 text-center mb-6">
             Included in every program
           </p>
           <div className="flex flex-wrap gap-3 md:gap-4 justify-center">
             {benefits.map((benefit, index) => (
               <div
                 key={index}
-                className="px-4 md:px-6 py-2 md:py-3 rounded-full border border-neutral-200/60 dark:border-neutral-800/60 bg-white/60 dark:bg-neutral-900/60 backdrop-blur-sm text-neutral-700 dark:text-neutral-300 text-sm md:text-base"
+                className="px-4 md:px-6 py-2 md:py-3 rounded-full border border-neutral-800/60 bg-neutral-900/60 backdrop-blur-sm text-neutral-300 text-sm md:text-base"
               >
                 {benefit}
               </div>
@@ -143,7 +143,7 @@ const WorkshopsCoaching = () => {
         <div className="text-center">
           <a
             href="/book-workshop"
-            className="inline-block px-8 md:px-12 py-4 md:py-5 rounded-lg bg-gradient-to-r from-neon-blue to-neon-purple text-white font-semibold text-lg md:text-xl hover:shadow-glow transition-all duration-300 transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-950"
+            className="inline-block px-8 md:px-12 py-4 md:py-5 rounded-lg bg-gradient-to-r from-neon-blue to-neon-purple text-white font-semibold text-lg md:text-xl hover:shadow-glow transition-all duration-300 transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950"
           >
             Bring Auravo to Your Institution
           </a>

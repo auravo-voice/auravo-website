@@ -71,28 +71,28 @@ const WhatIsAuravo = () => {
   }, [isInView, controls, prefersReducedMotion]);
 
   return (
-    <section id="what-is-auravo" ref={ref} className="py-16 md:py-20 bg-white dark:bg-neutral-950 relative overflow-hidden fade-in-on-scroll">
+    <section id="what-is-auravo" ref={ref} className="py-16 md:py-20 bg-neutral-950 relative overflow-hidden fade-in-on-scroll">
       {/* Subtle background decoration */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-radial from-neon-purple/5 via-neon-blue/3 to-transparent rounded-full blur-3xl pointer-events-none" />
       
       <div className="max-w-container mx-auto px-4 md:px-6 relative z-10">
         <div className="text-center mb-12 md:mb-16">
-          <h2 className="text-3xl sm:text-4xl font-semibold mb-6 text-neutral-900 dark:text-white">
+          <h2 className="text-3xl sm:text-4xl font-semibold mb-6 text-white">
             What is Auravo?
           </h2>
           
           {/* Editorial intro text */}
           <div className="max-w-3xl mx-auto space-y-4 mb-12">
-            <p className="text-lg sm:text-xl text-neutral-700 dark:text-neutral-300 leading-relaxed" style={{ lineHeight: '1.75' }}>
+            <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed" style={{ lineHeight: '1.75' }}>
               Auravo is the calming, premium AI platform that empowers students and professionals to communicate confidently, wherever they're heard.
             </p>
-            <p className="text-lg sm:text-xl text-neutral-700 dark:text-neutral-300 leading-relaxed" style={{ lineHeight: '1.75' }}>
+            <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed" style={{ lineHeight: '1.75' }}>
               Utilizing advanced voice AI, we deliver simple assessments and immersive live workshops designed to foster authentic, clear, and calm self-expression for our future-focused world.
             </p>
           </div>
 
           {/* Subtle divider */}
-          <div className="w-24 h-px bg-gradient-to-r from-transparent via-neutral-300 dark:via-neutral-700 to-transparent mx-auto mb-12" />
+          <div className="w-24 h-px bg-gradient-to-r from-transparent via-neutral-700 to-transparent mx-auto mb-12" />
         </div>
 
         {/* Feature cards */}
@@ -109,7 +109,7 @@ const WhatIsAuravo = () => {
               className="group relative"
             >
               <div
-                className="h-full border border-neutral-200/50 dark:border-neutral-800/50 rounded-xl p-8 bg-white/30 dark:bg-neutral-900/30 backdrop-blur-sm hover:border-neon-blue/40 dark:hover:border-neon-blue/40 hover:bg-white/50 dark:hover:bg-neutral-900/50 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue focus-visible:ring-offset-2 focus-visible:ring-offset-white dark:focus-visible:ring-offset-neutral-950 transform hover:-translate-y-1"
+                className="h-full border border-neutral-800/50 rounded-xl p-8 bg-neutral-900/30 backdrop-blur-sm hover:border-neon-blue/40 hover:bg-neutral-900/50 transition-all duration-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950 transform hover:-translate-y-1"
                 style={{
                   boxShadow: '0 0 0 rgba(59, 130, 246, 0)',
                 }}
@@ -122,10 +122,10 @@ const WhatIsAuravo = () => {
                   e.currentTarget.style.boxShadow = '0 0 0 rgba(59, 130, 246, 0)';
                 }}
               >
-                <h3 className="font-semibold text-xl mb-3 text-neon-blue dark:text-neon-blue group-hover:text-neon-blue-light dark:group-hover:text-neon-blue-light transition-colors duration-300">
+                <h3 className="font-semibold text-xl mb-3 text-neon-blue group-hover:text-neon-blue-light transition-colors duration-300">
                   {feature.title}
                 </h3>
-                <p className="text-neutral-600 dark:text-neutral-300 leading-relaxed">
+                <p className="text-neutral-300 leading-relaxed">
                   {feature.description}
                 </p>
               </div>

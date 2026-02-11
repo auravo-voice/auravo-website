@@ -1,6 +1,9 @@
 import type { APIRoute } from 'astro';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { Resend } from 'resend';
+
+const NOTIFY_EMAIL = 'auravo.voice@gmail.com';
 
 function getSupabase(): SupabaseClient | null {
   const url = import.meta.env.PUBLIC_SUPABASE_URL as string | undefined;
@@ -169,6 +172,34 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // Generate secure update token
     const submissionId = data[0].id;
     const updateToken = generateUpdateToken(submissionId);
+
+    // Notify auravo.voice@gmail.com via Resend (non-blocking: don't fail request if email fails)
+    const resendKey = import.meta.env.RESEND_API_KEY as string | undefined;
+    const fromEmail = (import.meta.env.RESEND_FROM_EMAIL as string | undefined) || 'Auravo Website <onboarding@resend.dev>';
+    if (resendKey?.trim()) {
+      const resend = new Resend(resendKey);
+      const text = [
+        'New quiz sign-up',
+        '',
+        'Name: ' + sanitizedData.name,
+        'Email: ' + sanitizedData.email,
+        'Phone: ' + sanitizedData.phone,
+        'Occupation: ' + sanitizedData.occupation,
+        'Age group: ' + sanitizedData.age_group,
+        'Submitted at: ' + sanitizedData.submitted_at,
+        'Submission ID: ' + submissionId,
+      ].join('\n');
+      resend.emails.send({
+        from: fromEmail,
+        to: [NOTIFY_EMAIL],
+        subject: `Quiz sign-up: ${sanitizedData.name}`,
+        text,
+      }).then(({ error }) => {
+        if (error && import.meta.env.DEV) console.error('Resend notify error:', error);
+      }).catch((err) => {
+        if (import.meta.env.DEV) console.error('Resend notify error:', err);
+      });
+    }
 
     return new Response(
       JSON.stringify({ 

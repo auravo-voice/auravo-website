@@ -1,5 +1,7 @@
 import type { APIRoute } from 'astro';
+import { Resend } from 'resend';
 
+const TO_EMAIL = 'auravo.voice@gmail.com';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function validate(body: unknown): { valid: boolean; error?: string } {
@@ -26,9 +28,30 @@ function validate(body: unknown): { valid: boolean; error?: string } {
   return { valid: true };
 }
 
+function formatBodyForEmail(body: Record<string, unknown>): string {
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '—');
+  const requestTypeLabels: Record<string, string> = {
+    workshop: 'Workshop',
+    institution: 'Bring Auravo to my institution',
+    coach: 'Review my voice with a coach',
+  };
+  return [
+    'Name: ' + str(body.name),
+    'Email: ' + str(body.email),
+    'Phone: ' + str(body.phone),
+    'Organization: ' + str(body.organization),
+    'Request type: ' + (requestTypeLabels[String(body.requestType)] ?? String(body.requestType)),
+    'Preferred date: ' + str(body.preferredDate),
+    'Participant count: ' + str(body.participantCount),
+    '',
+    'Message:',
+    str(body.message),
+  ].join('\n');
+}
+
 export const POST: APIRoute = async ({ request }) => {
   try {
-    const body = await request.json();
+    const body = (await request.json()) as Record<string, unknown>;
     const result = validate(body);
     if (!result.valid) {
       return new Response(
@@ -37,15 +60,40 @@ export const POST: APIRoute = async ({ request }) => {
       );
     }
 
-    // Optional: add Supabase or email integration here
-    // const supabase = getSupabase();
-    // await supabase.from('workshop_requests').insert([{ ... }]);
+    const apiKey = import.meta.env.RESEND_API_KEY as string | undefined;
+    const fromEmail = (import.meta.env.RESEND_FROM_EMAIL as string | undefined) || 'Auravo Website <onboarding@resend.dev>';
+    if (!apiKey || !apiKey.trim()) {
+      console.error('RESEND_API_KEY is not set');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Email is not configured. Please try again later.' }),
+        { status: 503, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    const resend = new Resend(apiKey);
+    const subject = `Book workshop: ${String(body.requestType)} – ${String(body.name)}`;
+    const text = formatBodyForEmail(body);
+    const { error } = await resend.emails.send({
+      from: fromEmail,
+      to: [TO_EMAIL],
+      subject,
+      text,
+    });
+
+    if (error) {
+      console.error('Resend error:', error);
+      return new Response(
+        JSON.stringify({ success: false, error: 'Failed to send. Please try again.' }),
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
 
     return new Response(
       JSON.stringify({ success: true }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     );
-  } catch {
+  } catch (err) {
+    if (import.meta.env.DEV) console.error(err);
     return new Response(
       JSON.stringify({ success: false, error: 'Something went wrong. Please try again.' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } }

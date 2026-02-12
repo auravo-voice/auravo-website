@@ -15,7 +15,7 @@ const Footer = () => {
           <div className="lg:col-span-2 animate-slide-in-left">
             <h3 className="text-2xl font-bold bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent mb-4 transition-all duration-300">Auravo</h3>
             <p className="text-neutral-400 mb-6 leading-relaxed hover:text-neutral-300 transition-colors duration-300 max-w-md">
-              The premium, calming AI for future-focused minds. Elevate your voice, presence, and digital experience.
+              Expert coaching. Smart technology. Better communication — all in one
             </p>
             
             {/* Download Auravo Section */}
@@ -83,11 +83,6 @@ const Footer = () => {
               <li>
                 <a href="#about" className="text-neutral-400 hover:text-neon-blue hover:translate-x-1 transition-all duration-300 inline-block">
                   About Auravo
-                </a>
-              </li>
-              <li>
-                <a href="#programs" className="text-neutral-400 hover:text-neon-blue hover:translate-x-1 transition-all duration-300 inline-block">
-                  Programs
                 </a>
               </li>
               <li>

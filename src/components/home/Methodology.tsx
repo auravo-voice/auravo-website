@@ -10,10 +10,10 @@ const Methodology = () => {
       <div className="max-w-container mx-auto px-6 relative z-10">
         <header className="text-center mb-8 md:mb-10 animate-fade-in-up">
           <h2 className="text-h1 text-neutral-100 mb-6 animate-fade-in-up">
-            Proven Where It <span className="bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent">Matters</span>
+            The <span className="bg-gradient-to-r from-neon-blue to-neon-purple bg-clip-text text-transparent">Pillars</span> We Build With You
           </h2>
           <p className="text-body-lg text-neutral-400 max-w-2xl mx-auto animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
-            Real outcomes. Real use cases. Designed for real voices.
+            Auravo strengthens the core skills that make communication effective, blending expert coaching with intelligent voice insights to help you improve in a measurable, practical way.
           </p>
         </header>
 
@@ -67,7 +67,7 @@ const Methodology = () => {
                 <div className="voice-ripple-center-glow absolute inset-0 rounded-full" aria-hidden />
                 <div className="voice-ripple-center-label relative z-10 flex flex-col items-center justify-center text-center px-2 py-1.5">
                   <span className="block voice-ripple-center-title text-neutral-200">Confidence</span>
-                  <span className="block voice-ripple-center-subtitle mt-0.5">Internal stability</span>
+                  <span className="block voice-ripple-center-subtitle mt-0.5">Core</span>
                 </div>
               </div>
             </div>
@@ -81,8 +81,8 @@ const Methodology = () => {
                 animationDelay: '450ms',
               }}
             >
-              <span className="block text-xs font-medium text-neutral-400/90 leading-tight">Clarity</span>
-              <span className="block text-xs text-neutral-500/60 leading-tight">Measurable clarity</span>
+              <span className="block text-xs font-medium text-neutral-400/90 leading-tight">Clarity & Consistency</span>
+              <span className="block text-xs text-neutral-500/60 leading-tight">Speak clearly, reliable pacing</span>
             </div>
             <div
               className="voice-ripple-label voice-ripple-label-reveal consistency absolute text-right w-[20%] p-0 m-0 cursor-default"
@@ -92,8 +92,8 @@ const Methodology = () => {
                 animationDelay: '500ms',
               }}
             >
-              <span className="block text-xs font-medium text-neutral-400/90 leading-tight">Consistency</span>
-              <span className="block text-xs text-neutral-500/60 leading-tight">Reliable delivery</span>
+              <span className="block text-xs font-medium text-neutral-400/90 leading-tight">Confidence & Presence</span>
+              <span className="block text-xs text-neutral-500/60 leading-tight">Composed, assured voice</span>
             </div>
             <div
               className="voice-ripple-label voice-ripple-label-reveal presence absolute text-left w-[16%] p-0 m-0 cursor-default"
@@ -103,30 +103,35 @@ const Methodology = () => {
                 animationDelay: '550ms',
               }}
             >
-              <span className="block text-xs font-medium text-neutral-400/90 leading-tight">Presence</span>
-              <span className="block text-xs text-neutral-500/60 leading-tight">Calmer delivery</span>
+              <span className="block text-xs font-medium text-neutral-400/90 leading-tight">Impactful Delivery</span>
+              <span className="block text-xs text-neutral-500/60 leading-tight">Structure ideas, engage listeners</span>
             </div>
             </div>
           </div>
 
-          {/* Right: Use cases — primary section: heading → divider → content */}
+          {/* Right: Pillar descriptions */}
           <div className="voice-ripple-system-note flex flex-col items-center md:items-start max-w-xl mx-auto md:mx-0 animate-fade-in-up order-1 md:order-2" style={{ animationDelay: '0.3s' }}>
-            <h3 className="voice-ripple-system-note-label">Who This Is Built For</h3>
             <div className="voice-ripple-system-note-divider" aria-hidden />
             <div className="voice-ripple-system-note-lines">
               <div className="space-y-6">
                 <div>
-                  <h4 className="font-semibold text-base mb-2 text-neutral-200">For Students</h4>
-                  <p className="text-sm text-neutral-400 leading-relaxed">Sharpen clarity, confidence, and delivery for interviews, presentations, and competitions. Get instant feedback on voice, pacing, articulation, and overall presence so you stand out where it matters.</p>
+                  <h4 className="font-semibold text-base mb-2 text-neutral-200">Clarity & Consistency</h4>
+                  <p className="text-sm text-neutral-400 leading-relaxed">Speak clearly, reduce hesitation, and deliver your thoughts with smooth, reliable pacing across conversations, presentations, and everyday communication.</p>
                 </div>
                 <div>
-                  <h4 className="font-semibold text-base mb-2 text-neutral-200">For Institutions</h4>
-                  <p className="text-sm text-neutral-400 leading-relaxed">Standardize communication quality across your student body with measurable benchmarks and consistent, automated feedback. Improve placement readiness, presentation skills, and overall confidence at scale.</p>
+                  <h4 className="font-semibold text-base mb-2 text-neutral-200">Confidence & Presence</h4>
+                  <p className="text-sm text-neutral-400 leading-relaxed">Develop a steadier, more composed voice that feels natural, controlled, and assured without sounding rehearsed.</p>
                 </div>
                 <div>
-                  <h4 className="font-semibold text-base mb-2 text-neutral-200">For Corporates</h4>
-                  <p className="text-sm text-neutral-400 leading-relaxed">Equip teams with clearer communication, stronger presence, and more persuasive delivery. Reduce filler words, improve articulation in meetings, and help professionals speak with confidence and impact.</p>
+                  <h4 className="font-semibold text-base mb-2 text-neutral-200">Impactful Delivery</h4>
+                  <p className="text-sm text-neutral-400 leading-relaxed">Learn how to structure and express your ideas in a way that engages listeners and makes your message land.</p>
                 </div>
+                <p className="text-sm text-neutral-400 leading-relaxed pt-2">
+                  With personalised feedback from our coaches and progress tracking through the Auravo app, these pillars improve together — creating real, long-term communication growth.
+                </p>
+                <p className="text-sm font-medium text-neutral-300 leading-relaxed pt-1">
+                  Expert coaching. Smart technology. Measurable improvement.
+                </p>
               </div>
             </div>
           </div>

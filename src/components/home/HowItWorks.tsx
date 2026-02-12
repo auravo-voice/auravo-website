@@ -1,9 +1,8 @@
 'use client';
-import React, { useState, useRef } from 'react';
+import React, { useRef } from 'react';
 import { motion, useReducedMotion, useInView, useAnimation } from 'framer-motion';
 
 const HowItWorks = () => {
-  const [hoveredStep, setHoveredStep] = useState<number | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const ref = useRef(null);
   const isInView = useInView(ref, { amount: 0.25 });
@@ -101,50 +100,29 @@ const HowItWorks = () => {
             className="space-y-8 md:space-y-12"
           >
             {steps.map((step, index) => {
-              const isHovered = hoveredStep === index;
               const isPhaseBreak = index === 3; // Extra spacing after step 3
               
               return (
                 <motion.div
                   key={step.number}
                   variants={stepVariants as any}
-                  className={`relative flex items-start gap-6 md:gap-8 group ${
+                  className={`relative flex items-start gap-6 md:gap-8 ${
                     isPhaseBreak ? 'mb-8 md:mb-12' : ''
                   }`}
-                  onMouseEnter={() => setHoveredStep(index)}
-                  onMouseLeave={() => setHoveredStep(null)}
                 >
                   {/* Slight horizontal offset for alternating steps */}
                   <div className={`flex-shrink-0 ${index % 2 === 0 ? '' : 'md:ml-2'}`}>
                     {/* Numbered step marker */}
-                    <div
-                      className={`relative w-14 h-14 md:w-16 md:h-16 flex items-center justify-center rounded-full transition-all duration-300 ${
-                        isHovered
-                          ? 'bg-gradient-to-br from-neon-blue to-neon-purple shadow-[0_0_20px_rgba(59,130,246,0.4),0_0_40px_rgba(147,51,234,0.3)] scale-105'
-                          : 'bg-gradient-to-br from-neon-blue/80 to-neon-purple/80 shadow-[0_0_15px_rgba(59,130,246,0.2),0_0_30px_rgba(147,51,234,0.15)]'
-                      }`}
-                    >
-                      <span className={`text-white font-semibold text-lg md:text-xl ${
-                        isHovered ? 'font-bold' : ''
-                      }`}>
+                    <div className="relative w-14 h-14 md:w-16 md:h-16 flex items-center justify-center rounded-full bg-gradient-to-br from-neon-blue/80 to-neon-purple/80 shadow-[0_0_15px_rgba(59,130,246,0.2),0_0_30px_rgba(147,51,234,0.15)]">
+                      <span className="text-white font-semibold text-lg md:text-xl">
                         {step.number}
                       </span>
                     </div>
                   </div>
 
                   {/* Content */}
-                  <div className={`flex-1 pt-1 transition-all duration-300 ${
-                    isHovered
-                      ? 'opacity-100'
-                      : hoveredStep !== null
-                      ? 'opacity-60'
-                      : 'opacity-100'
-                  }`}>
-                    <h3 className={`block font-semibold text-lg md:text-xl mb-2 transition-all duration-300 ${
-                      isHovered
-                        ? 'text-neutral-900 dark:text-white font-bold'
-                        : 'text-neutral-800 dark:text-neutral-200'
-                    }`}>
+                  <div className="flex-1 pt-1">
+                    <h3 className="block font-semibold text-lg md:text-xl mb-2 text-neutral-800 dark:text-neutral-200">
                       {step.title}
                     </h3>
                     <p className="block text-neutral-700 dark:text-neutral-300 text-base md:text-lg leading-relaxed">

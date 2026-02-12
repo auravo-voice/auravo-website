@@ -18,8 +18,8 @@ const WhatIsAuravo = () => {
       description: 'Interactive coaching for voice, clarity, and real-world confidence. Delivered online or on-site.',
     },
     {
-      title: 'Built for Everyone',
-      description: 'For students, graduates, and seasoned professionals. Anyone ready to elevate their voice in a noisy digital world.',
+      title: 'Built for Every Speaker in Every Space',
+      description: 'From classrooms to boardrooms to everyday conversations, Auravo helps anyone sharpen how they communicate.',
     },
   ];
 
@@ -84,10 +84,13 @@ const WhatIsAuravo = () => {
           {/* Editorial intro text */}
           <div className="max-w-3xl mx-auto space-y-4 mb-12">
             <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed" style={{ lineHeight: '1.75' }}>
-              Auravo is the calming, premium AI platform that empowers students and professionals to communicate confidently, wherever they're heard.
+              Auravo is a premium communication coaching platform that brings together expert-led training and intelligent voice technology. We run workshops, group sessions, institutional programs, and optional one-on-one coaching — all focused on helping people communicate with clarity, confidence, and impact.
             </p>
             <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed" style={{ lineHeight: '1.75' }}>
-              Utilizing advanced voice AI, we deliver simple assessments and immersive live workshops designed to foster authentic, clear, and calm self-expression for our future-focused world.
+              The Auravo app works alongside our coaching to track your progress, identify problem areas, and support continuous improvement through personalised insights. Together, our coaches and technology create a balanced, tailored training experience that adapts to your unique voice and goals.
+            </p>
+            <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed" style={{ lineHeight: '1.75' }}>
+              Expert coaching. Smart technology. Measurable improvement.
             </p>
           </div>
 

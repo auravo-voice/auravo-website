@@ -11,15 +11,19 @@ const WorkshopsCoaching = () => {
   const tracks = [
     {
       title: 'School Workshops',
-      description: 'Build foundational confidence and expression for young learners.',
+      description: 'Build confident, expressive young speakers. Auravo\'s school workshops strengthen articulation, clarity, and presentation skills early — supported by personalised progress tracking through our app. Schools choose Auravo because it creates long-term communication growth that traditional curriculums miss.',
     },
     {
       title: 'College Programs',
-      description: 'Level up student impact for presentations, interviews, and digital collaboration.',
+      description: 'Give students an edge in interviews, presentations, and the professional world. Our sessions combine expert coaching with real-time voice analysis to help students improve fast and stand out. Colleges trust Auravo to bridge the gap between academic learning and real-world communication.',
     },
     {
       title: 'Corporate Solutions',
-      description: 'Boost workplace presence and leadership with calm, persuasive communication.',
+      description: 'Transform how teams communicate — from leadership presence to client interactions to internal collaboration. Auravo helps professionals speak with more clarity, confidence, and impact. Corporates choose us because our personalised insights and training drive measurable performance improvements.',
+    },
+    {
+      title: 'One-on-One Coaching',
+      description: 'For individuals who want deeply customised guidance. Our coaches work personally with you while the app tracks progress and highlights exactly where improvement is needed. This is the fastest and most tailored way to strengthen your communication.',
     },
   ];
 

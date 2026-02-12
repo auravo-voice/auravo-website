@@ -112,7 +112,7 @@ const Hero = () => {
             variants={textVariants}
             className="text-lg text-neutral-400 mb-12 max-w-3xl leading-relaxed"
           >
-            High-performance voice and communication coaching for modern professionals.
+            Where communication begins
           </motion.p>
           
           <motion.div 
@@ -123,7 +123,7 @@ const Hero = () => {
               href="/voice-quiz"
               className="relative bg-gradient-to-r from-neon-blue to-neon-purple text-white font-semibold px-8 py-4 rounded-lg transition-all duration-200 shadow-glow group inline-flex items-center justify-center gap-2 overflow-hidden hover:brightness-110"
             >
-              <span className="relative z-10">Get Started</span>
+              <span className="relative z-10">Reveal Your Voice Archetype</span>
               <div className="absolute inset-0 bg-gradient-to-r from-neon-purple to-neon-blue opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
             </a>
             <a

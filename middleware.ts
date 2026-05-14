@@ -1,13 +1,30 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { AURAVO_PENDING_BASELINE_SESSION_COOKIE } from "@/lib/auth/auravo-user-cookie-constants";
-import { AURAVO_USER_ID_COOKIE, auravoUserIdCookieOptions } from "@/lib/auth/auravo-user-cookie";
+import {
+  AURAVO_PENDING_BASELINE_SESSION_COOKIE,
+  AURAVO_USER_ID_COOKIE,
+  AURAVO_USER_COOKIE_MAX_AGE_SEC,
+} from "@/lib/auth/auravo-user-cookie-constants";
+
+/**
+ * Keep this file self-contained for the Edge bundle (Vercel + Next 16): avoid importing
+ * `@/lib/auth/auravo-user-cookie` here so the bundler cannot pull extra modules into middleware.
+ * Options mirror `auravoUserIdCookieOptions()` in that module.
+ */
+function userIdCookieOptions() {
+  return {
+    httpOnly: false,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: AURAVO_USER_COOKIE_MAX_AGE_SEC,
+  };
+}
 
 export function middleware(request: NextRequest) {
   const res = NextResponse.next();
   const pathname = request.nextUrl.pathname;
 
-  // Never mint `auravo_user_id` on these requests — the route handler sets the real id (or Safari handoff POST).
   if (pathname.startsWith("/api/session/attach") || pathname === "/api/session/baseline-handoff") {
     return res;
   }
@@ -17,14 +34,12 @@ export function middleware(request: NextRequest) {
 
   const hasUserCookie = Boolean(request.cookies.get(AURAVO_USER_ID_COOKIE)?.value);
   if (!hasUserCookie) {
-    // Do not mint a throwaway id on the assessment → dashboard handoff: baseline is resolved from `?session=` or
-    // `auravo_pending_baseline_session`, then the client mirrors `auravo_user_id`.
     const hasPendingBaseline = Boolean(request.cookies.get(AURAVO_PENDING_BASELINE_SESSION_COOKIE)?.value);
     const dashboardBaselineHandoff =
       pathname === "/dashboard" &&
       (request.nextUrl.searchParams.has("session") || hasPendingBaseline);
     if (!dashboardBaselineHandoff) {
-      res.cookies.set(AURAVO_USER_ID_COOKIE, crypto.randomUUID(), auravoUserIdCookieOptions());
+      res.cookies.set(AURAVO_USER_ID_COOKIE, crypto.randomUUID(), userIdCookieOptions());
     }
   }
   return res;

@@ -16,11 +16,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "auravo — AI communication coach",
-    template: "%s · auravo",
+    default: "Auravo",
+    template: "%s · Auravo",
   },
   description:
-    "Build speaking confidence with personalized AI coaching—interview prep, meeting rehearsal, realistic simulations, and measurable progress with Voca.",
+    "Voice-first communication coaching for interviews, meetings, and high-stakes conversations—with clear, actionable feedback.",
 };
 
 export default function RootLayout({

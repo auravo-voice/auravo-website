@@ -2,6 +2,11 @@ import "server-only";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
+/** Local venv folder name (base64 so dev bundlers do not treat it as a static dir root; resolves to `.venv-transcription`). */
+function transcriptionVenvRoot(): string {
+  return Buffer.from("LnZlbnYtdHJhbnNjcmlwdGlvbg==", "base64").toString("utf8");
+}
+
 /**
  * Python used to run `transcribe_faster_whisper.py`, `extract_opensmile.py`, and `extract_vad.py`.
  *
@@ -22,8 +27,8 @@ export function resolveTranscriptionPython(): string {
 
   const venvBin =
     process.platform === "win32"
-      ? path.join(".venv-transcription", "Scripts", "python.exe")
-      : path.join(".venv-transcription", "bin", "python");
+      ? path.join(transcriptionVenvRoot(), "Scripts", "python.exe")
+      : path.join(transcriptionVenvRoot(), "bin", "python");
 
   for (const root of collectProjectRootCandidates()) {
     const py = path.join(root, venvBin);

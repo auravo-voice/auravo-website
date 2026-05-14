@@ -3,11 +3,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "src"),
+    alias: [
+      { find: "@/app", replacement: path.resolve(__dirname, "app") },
+      { find: "@", replacement: path.resolve(__dirname, "src") },
       // Pure libs accidentally import `server-only`; in tests we stub it.
-      "server-only": path.resolve(__dirname, "tests/stubs/server-only.ts"),
-    },
+      { find: "server-only", replacement: path.resolve(__dirname, "tests/stubs/server-only.ts") },
+    ],
   },
   test: {
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],

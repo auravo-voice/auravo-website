@@ -1,0 +1,8 @@
+faster-whisper>=1.0.0
+# Local acoustic features (BSD; bundles the openSMILE binary). Optional — the analysis pipeline
+# degrades gracefully when this package is missing.
+opensmile>=2.5.0
+# Local Voice Activity Detection. We try silero-vad first (ML-grade), then webrtcvad (lightweight C).
+# Both are optional — if neither installs, the analysis falls back to timing-gap heuristics.
+silero-vad>=5.1.2; python_version < "3.14"
+webrtcvad-wheels>=2.0.14

@@ -1,0 +1,358 @@
+import "server-only";
+
+import path from "node:path";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
+
+import { getDataDir } from "@/db/client";
+import { extractAcousticFeatures } from "@/lib/audio/acoustic";
+import { extractVadFeatures } from "@/lib/audio/vad";
+import {
+  getTranscriptionAdapter,
+  TranscriptionUnavailableError,
+  type TranscriptionResult,
+} from "@/lib/transcription";
+import { concatAudioToWav } from "@/lib/audio/concat";
+import { fingerprintAudioInputs } from "@/lib/audio/audio-fingerprint";
+import { scoresFromAnalysis, type VoiceAnalysis } from "@/lib/analysis/scoring";
+import { analyzeTranscriptDeep } from "@/lib/assessment/transcript-deep-analysis";
+import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
+import { computeConversationMetrics, describeConversation, type ConversationMetrics, type ConversationTurnInput } from "@/lib/analysis/conversation";
+import { getOnboardingBaselineForUser } from "@/db/queries/baseline";
+import { buildWeekPlan } from "@/lib/practice/week-plan";
+import {
+  pickRecommendedExercises,
+  type RecommendedExercise,
+} from "@/lib/practice/recommend";
+import { generateFinalCoachingSummary, type FinalCoachingSummary } from "@/lib/coach/final-summary";
+import {
+  generateExerciseTaskReview,
+  type ExerciseTaskReviewResult,
+  type ExerciseContextForTaskReview,
+} from "@/lib/coach/task-review";
+import type { SixDimensionScores } from "@/lib/assessment/heuristics";
+
+/**
+ * Canonical analysis result. Every finalize route — initial assessment, daily practice, simulation,
+ * meeting rehearsal — funnels through {@link runAnalysis} and persists this shape into
+ * `session_transcript.analysisJson` so the rest of the app reads from one well-known schema.
+ */
+export type CanonicalAnalysis = {
+  /** What was actually heard (full plain text, suitable for `session_transcript.text`). */
+  transcript: string;
+  /** Adapter name that produced the transcript, e.g. "faster-whisper" or "faster-whisper-strict". */
+  adapter: string;
+  modelName: string | null;
+  language: string | null;
+  /** End-to-end audio duration in seconds, when known. */
+  durationSec: number | null;
+
+  /** Per-dimension audio-grounded scores (the canonical six). */
+  scores: SixDimensionScores;
+  /** Audio-grounded score evidence + key metrics from `scoresFromAnalysis`. */
+  voice: VoiceAnalysis;
+  /** Legacy transcript-only analysis (grammar flags + pronunciation tips). Kept for back-compat. */
+  deep: BaselineAnalysis;
+
+  /** Optional conversational metrics — present only for simulation + meeting-rehearsal flows. */
+  conversation: ConversationMetrics | null;
+  conversationCoachNotes: string[];
+
+  /** Final coaching summary (LLM-authored over structured metrics; deterministic fallback when Ollama is down). */
+  coachSummary: FinalCoachingSummary;
+  /** Exercise-specific task review (daily practice); null when no exercise context (e.g. assessment). */
+  taskReview: ExerciseTaskReviewResult | null;
+  /** Candidate exercises shown to the LLM — also rendered as clickable cards in the UI. */
+  candidateExercises: RecommendedExercise[];
+};
+
+/**
+ * Inputs to {@link runAnalysis}. Callers can either supply audio inputs (full pipeline runs) or
+ * provide already-transcribed text via `preTranscribed` when the route has reason to skip
+ * re-transcription (e.g. simulation finalize where each turn was transcribed live). When both audio
+ * and preTranscribed are supplied, audio wins — the orchestrator re-transcribes the concatenated
+ * audio because Whisper word timings on the full recording yield better pacing/pause scores than
+ * stitching per-turn transcripts together.
+ */
+export type RunAnalysisInput = {
+  /** Path to a single audio file relative to `data/`, OR a sequence to concat. Use one or the other. */
+  audio?:
+    | { mode: "single"; absolutePath: string; durationMs?: number | null }
+    | { mode: "concat"; absolutePaths: string[]; totalDurationMs?: number | null };
+  /** Pre-transcribed text when audio is not provided. Used only as a fallback path. */
+  preTranscribed?: {
+    text: string;
+    adapter?: string;
+    durationSec?: number | null;
+  };
+  /** Conversation context for simulations / meeting rehearsals. */
+  conversation?: { turns: ConversationTurnInput[] };
+  /** User context used for exercise recommendations + coach summary personalisation. */
+  context: {
+    userId: string;
+    /** When true, runs the Ollama coach summary. Set false for tests / debugging. */
+    runCoachSummary?: boolean;
+    /** Exclude these exercise ids from recommendations (e.g. the one just completed). */
+    excludeExerciseIds?: string[];
+    /** Pretty label for the conversation / session, used inside the LLM prompt. */
+    learnerContextHint?: { displayName?: string; streakDays?: number };
+    /**
+     * When false and {@link exerciseContext} is set, skips the extra Ollama task-review call (tests / debugging).
+     * Default: task review runs whenever exerciseContext is present.
+     */
+    runExerciseTaskReview?: boolean;
+    /**
+     * When set, runs {@link generateExerciseTaskReview} after scoring so feedback is grounded in the
+     * actual exercise prompt (daily practice).
+     */
+    exerciseContext?: ExerciseContextForTaskReview | null;
+  };
+};
+
+function asAbsolute(relativeOrAbsolute: string): string {
+  if (path.isAbsolute(relativeOrAbsolute)) return relativeOrAbsolute;
+  return path.join(getDataDir(), relativeOrAbsolute);
+}
+
+/**
+ * Resolve the audio file to feed into Whisper/openSMILE/VAD. Concatenates with ffmpeg when the caller
+ * supplies multiple inputs. Returns the absolute path plus a `cleanup` function which the orchestrator
+ * runs in a `finally` after the heavy pipeline stages complete.
+ */
+async function resolveAudio(input: RunAnalysisInput["audio"]): Promise<{
+  audioPath: string;
+  totalDurationMs: number | null;
+  cleanup: () => Promise<void>;
+  /** Fingerprint of upstream source files for subprocess cache hits (reload / dev retries). */
+  featureCacheKey: string | null;
+} | null> {
+  if (!input) return null;
+  if (input.mode === "single") {
+    const abs = asAbsolute(input.absolutePath);
+    if (!existsSync(abs)) {
+      throw new Error(`runAnalysis: audio file missing: ${abs}`);
+    }
+    const featureCacheKey = await fingerprintAudioInputs([abs]);
+    return {
+      audioPath: abs,
+      totalDurationMs: input.durationMs ?? null,
+      cleanup: async () => {},
+      featureCacheKey,
+    };
+  }
+  const abs = input.absolutePaths.map(asAbsolute);
+  const featureCacheKey = await fingerprintAudioInputs(abs);
+  const { wavPath, workDir } = await concatAudioToWav(abs);
+  return {
+    audioPath: wavPath,
+    totalDurationMs: input.totalDurationMs ?? null,
+    cleanup: async () => {
+      await rm(workDir, { recursive: true, force: true }).catch(() => {});
+    },
+    featureCacheKey,
+  };
+}
+
+/**
+ * Canonical voice-analysis pipeline. Used by every finalize route in the product so onboarding
+ * baseline, daily practice, simulations, and meeting rehearsals all produce the same rich
+ * `CanonicalAnalysis` payload (scores + explanations + key metrics + recommended next exercises).
+ *
+ * Pipeline order matches the layered architecture in the spec:
+ *   audio → transcription → VAD + openSMILE (parallel) → derive → score → recommend → coach summary.
+ *
+ * Failure model: if real transcription is required but unavailable (faster-whisper down without
+ * placeholder fallback enabled), this throws a {@link TranscriptionUnavailableError}; routes catch
+ * and return HTTP 503 with a clear message. All other subsystems degrade gracefully.
+ */
+export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAnalysis> {
+  const resolved = await resolveAudio(input.audio);
+
+  // Stage 1: transcription.
+  let transcription: TranscriptionResult;
+  let adapterName: string;
+  if (resolved) {
+    const adapter = getTranscriptionAdapter();
+    adapterName = adapter.name;
+    transcription = await adapter.transcribe(resolved.audioPath);
+  } else if (input.preTranscribed) {
+    adapterName = input.preTranscribed.adapter ?? "pre-transcribed";
+    transcription = {
+      text: input.preTranscribed.text,
+      durationSec: input.preTranscribed.durationSec ?? undefined,
+    };
+  } else {
+    throw new Error("runAnalysis: neither audio nor preTranscribed input was provided");
+  }
+  const transcriptText = transcription.text.trim();
+
+  // Stage 2 (parallel where possible): VAD + acoustic features. Skip both if we have no audio.
+  const cacheKey = resolved?.featureCacheKey ?? null;
+  const [acoustic, vad] = resolved
+    ? await Promise.all([
+        extractAcousticFeatures(resolved.audioPath, { cacheKey }),
+        extractVadFeatures(resolved.audioPath, { cacheKey }),
+      ])
+    : [
+        { available: false as const, reason: "no_audio_input" },
+        { available: false as const, reason: "no_audio_input" },
+      ];
+  if (acoustic.available === false) {
+    console.error("[runAnalysis] acoustic unavailable:", acoustic.reason);
+  }
+  if (vad.available === false) {
+    console.error("[runAnalysis] vad unavailable:", vad.reason);
+  }
+
+  // Stage 3: derive + score (deterministic; uses everything above).
+  const audioDurationSec =
+    transcription.durationSec ??
+    (resolved?.totalDurationMs != null ? resolved.totalDurationMs / 1000 : null);
+  const voice = scoresFromAnalysis({
+    transcript: transcriptText,
+    wordTimings: transcription.wordTimings,
+    segments: transcription.segments,
+    durationSec: audioDurationSec,
+    acoustic,
+    vad,
+  });
+  const deep = analyzeTranscriptDeep(transcriptText, transcription.asrWordHints);
+
+  // Stage 4: conversation metrics (simulations + meeting rehearsals only).
+  const conversation = input.conversation
+    ? computeConversationMetrics(input.conversation.turns)
+    : null;
+  const conversationCoachNotes = conversation ? describeConversation(conversation) : [];
+
+  // Stage 5: exercise recommendation. Always week-plan-first; falls back to library.
+  const baseline = await getOnboardingBaselineForUser(input.context.userId);
+  const baselineScores: SixDimensionScores = baseline
+    ? {
+        pronunciation: baseline.scores.pronunciation,
+        grammar: baseline.scores.grammar,
+        fluency: baseline.scores.fluency,
+        vocabulary: baseline.scores.vocabulary,
+        filler_words: baseline.scores.fillerWords,
+        pacing: baseline.scores.pacing,
+      }
+    : voice.scores;
+  const weekPlan = buildWeekPlan({
+    userId: input.context.userId,
+    scores: baselineScores,
+    goalId: baseline?.user.onboardingGoalId ?? null,
+  });
+  const candidateExercises = pickRecommendedExercises({
+    scores: voice.scores,
+    weekPlan,
+    excludeIds: input.context.excludeExerciseIds,
+    count: 3,
+  });
+
+  // Stage 5b: exercise task review (Ollama + fallback) — only when the caller supplies exercise metadata.
+  let taskReview: ExerciseTaskReviewResult | null = null;
+  if (input.context.exerciseContext && input.context.runExerciseTaskReview !== false) {
+    taskReview = await generateExerciseTaskReview({
+      exercise: input.context.exerciseContext,
+      transcript: transcriptText,
+      voice,
+    });
+  }
+
+  // Stage 6: LLM coach summary (only if the caller wants it; the route owns whether to incur Ollama latency).
+  let coachSummary: FinalCoachingSummary;
+  if (input.context.runCoachSummary === false) {
+    coachSummary = {
+      summary: "",
+      strengths: [],
+      improvementAreas: [],
+      recommendedExerciseIds: candidateExercises.map((c) => c.id),
+      recommendationRationale: "",
+      fallbackUsed: true,
+      warning: null,
+    };
+  } else {
+    coachSummary = await generateFinalCoachingSummary({
+      analysis: voice,
+      candidateExercises,
+      learnerContext: {
+        displayName: baseline?.user.displayName ?? input.context.learnerContextHint?.displayName ?? "Learner",
+        goalLabel: baseline?.user.onboardingGoalId ?? null,
+        streakDays: input.context.learnerContextHint?.streakDays,
+      },
+      exerciseContext: input.context.exerciseContext ?? null,
+      taskReview,
+    });
+  }
+
+  try {
+    return {
+      transcript: transcriptText,
+      adapter: adapterName,
+      modelName: transcription.modelName ?? null,
+      language: transcription.language ?? null,
+      durationSec: audioDurationSec ?? null,
+      scores: voice.scores,
+      voice,
+      deep,
+      conversation,
+      conversationCoachNotes,
+      coachSummary,
+      taskReview,
+      candidateExercises,
+    };
+  } finally {
+    if (resolved) await resolved.cleanup();
+  }
+}
+
+/**
+ * Helper for finalize routes: produce the JSON blob that goes into `session_transcript.analysisJson`.
+ * Centralising this keeps the persisted shape consistent across routes; existing readers that look
+ * for `grammarFlags` / `pronunciationTips` keep working because those live at the top level.
+ */
+export function serializeAnalysisForPersistence(analysis: CanonicalAnalysis): string {
+  const payload = {
+    // Legacy keys (back-compat with code that still reads BaselineAnalysis directly).
+    grammarFlags: analysis.deep.grammarFlags,
+    pronunciationTips: analysis.deep.pronunciationTips,
+
+    // Canonical voice-analysis bundle.
+    voiceAnalysis: {
+      transcript: analysis.transcript,
+      durationSec: analysis.durationSec,
+      adapter: analysis.adapter,
+      modelName: analysis.modelName,
+      language: analysis.language,
+      wordTimings: analysis.voice.wordTimings,
+      asrConfidence: analysis.voice.asrConfidence,
+      fillerStats: analysis.voice.fillerStats,
+      pauseStats: analysis.voice.pauseStats,
+      acousticFeatures: analysis.voice.acousticFeatures,
+      acousticReason: analysis.voice.acousticReason,
+      vadFeatures: analysis.voice.vadFeatures,
+      vadReason: analysis.voice.vadReason,
+      derivedMetrics: analysis.voice.derivedMetrics,
+      scores: analysis.voice.scores,
+      explanations: analysis.voice.explanations,
+      qualityFlags: analysis.voice.qualityFlags,
+      bonusSignals: analysis.voice.bonusSignals,
+    },
+    coachSummary: {
+      summary: analysis.coachSummary.summary,
+      strengths: analysis.coachSummary.strengths,
+      improvementAreas: analysis.coachSummary.improvementAreas,
+      scoreExplanations: analysis.coachSummary.scoreExplanations,
+      recommendedExerciseIds: analysis.coachSummary.recommendedExerciseIds,
+      recommendationRationale: analysis.coachSummary.recommendationRationale,
+      fallbackUsed: analysis.coachSummary.fallbackUsed,
+      warning: analysis.coachSummary.warning,
+    },
+    taskReview: analysis.taskReview,
+    candidateExercises: analysis.candidateExercises,
+    conversation: analysis.conversation,
+    conversationCoachNotes: analysis.conversationCoachNotes,
+  };
+  return JSON.stringify(payload);
+}
+
+export { TranscriptionUnavailableError };

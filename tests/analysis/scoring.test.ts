@@ -1,0 +1,170 @@
+import { describe, expect, it } from "vitest";
+import {
+  scorePace,
+  scoreFluency,
+  scoreClarity,
+  scoreConfidence,
+  scorePronunciationApprox,
+  scoresFromAnalysis,
+} from "@/lib/analysis/scoring";
+import { computeDerivedMetrics } from "@/lib/analysis/derive";
+import type { WordTiming } from "@/lib/transcription/types";
+import type { AcousticFeatures } from "@/lib/audio/acoustic";
+
+function timings(wpm: number, n: number): WordTiming[] {
+  const gap = 60 / wpm;
+  const out: WordTiming[] = [];
+  for (let i = 0; i < n; i++) {
+    out.push({ word: `w${i}`, start: i * gap, end: i * gap + gap * 0.7, probability: 0.9 });
+  }
+  return out;
+}
+
+const SAMPLE_ACOUSTIC: AcousticFeatures = {
+  featureSet: "eGeMAPSv02",
+  pitchMeanHz: 145,
+  pitchStddevSemitones: 2.5,
+  pitchRangeSemitones: 8,
+  loudnessMean: 0.4,
+  loudnessStddev: 0.3,
+  loudnessRange: 0.5,
+  hnrMeanDb: 14,
+  jitterLocalPct: 0.5,
+  shimmerLocaldB: 0.5,
+  voicedRatio: 0.7,
+};
+
+describe("scorePace", () => {
+  it("returns a high score at the target WPM band", () => {
+    const d = computeDerivedMetrics({
+      transcript: "alpha beta gamma delta epsilon zeta eta",
+      wordTimings: timings(150, 200),
+      durationSec: (200 * 60) / 150,
+    });
+    const r = scorePace(d);
+    expect(r.score).toBeGreaterThanOrEqual(80);
+    expect(r.qualityFlag).toBe("audio_grounded");
+    expect(r.explanation.toLowerCase()).toContain("wpm");
+  });
+
+  it("penalises very fast speech", () => {
+    const d = computeDerivedMetrics({
+      transcript: "fast",
+      wordTimings: timings(230, 200),
+      durationSec: (200 * 60) / 230,
+    });
+    const r = scorePace(d);
+    expect(r.score).toBeLessThan(80);
+    expect(r.explanation.toLowerCase()).toContain("faster");
+  });
+
+  it("falls back gracefully without timings", () => {
+    const d = computeDerivedMetrics({ transcript: "no timings here." });
+    const r = scorePace(d);
+    expect(r.qualityFlag).toBe("transcript_only");
+    expect(r.score).toBeGreaterThanOrEqual(40);
+  });
+});
+
+describe("scoreFluency", () => {
+  it("rewards clean transcripts with no long pauses or fillers", () => {
+    const d = computeDerivedMetrics({
+      transcript: "I think the new approach will work well for our team.",
+      wordTimings: timings(150, 11),
+      durationSec: 60 / 150 * 11,
+    });
+    const r = scoreFluency(d);
+    expect(r.score).toBeGreaterThan(70);
+  });
+
+  it("penalises filler-heavy speech", () => {
+    const d = computeDerivedMetrics({
+      transcript: "um like you know basically uh so like actually um",
+      wordTimings: timings(140, 10),
+      durationSec: (10 * 60) / 140,
+    });
+    const r = scoreFluency(d);
+    expect(r.score).toBeLessThan(60);
+  });
+});
+
+describe("scoreClarity", () => {
+  it("uses acoustic features when available", () => {
+    const d = computeDerivedMetrics({
+      transcript: "test",
+      acoustic: SAMPLE_ACOUSTIC,
+      durationSec: 5,
+    });
+    const r = scoreClarity(d, SAMPLE_ACOUSTIC);
+    expect(r.qualityFlag).toBe("audio_grounded");
+  });
+
+  it("notes the transcript-only fallback when openSMILE is absent", () => {
+    const d = computeDerivedMetrics({ transcript: "test" });
+    const r = scoreClarity(d, null);
+    expect(r.qualityFlag).toBe("transcript_only");
+    expect(r.explanation.toLowerCase()).toContain("opensmile");
+  });
+});
+
+describe("scoreConfidence", () => {
+  it("uses stable loudness when acoustic features present", () => {
+    const stable: AcousticFeatures = { ...SAMPLE_ACOUSTIC, loudnessStddev: 0.15 };
+    const d = computeDerivedMetrics({ transcript: "hello world.", acoustic: stable, durationSec: 5 });
+    const r = scoreConfidence(d, stable);
+    expect(r.qualityFlag).toBe("audio_grounded");
+    expect(r.score).toBeGreaterThan(60);
+  });
+
+  it("falls back to transcript-only with disclaimer", () => {
+    const d = computeDerivedMetrics({ transcript: "hello world." });
+    const r = scoreConfidence(d, null);
+    expect(r.qualityFlag).toBe("transcript_only");
+  });
+});
+
+describe("scorePronunciationApprox", () => {
+  it("marks the score as approximate when only Whisper confidence is available", () => {
+    const wt: WordTiming[] = timings(150, 20).map((w, i) => ({
+      ...w,
+      probability: i % 5 === 0 ? 0.4 : 0.85,
+    }));
+    const d = computeDerivedMetrics({
+      transcript: "twenty word transcript",
+      wordTimings: wt,
+      durationSec: (20 * 60) / 150,
+    });
+    const r = scorePronunciationApprox(d, null);
+    expect(r.qualityFlag).toBe("approximate");
+  });
+
+  it("upgrades to audio_grounded when openSMILE clarity is also present", () => {
+    const wt: WordTiming[] = timings(150, 20).map((w) => ({ ...w, probability: 0.92 }));
+    const d = computeDerivedMetrics({
+      transcript: "twenty word transcript",
+      wordTimings: wt,
+      durationSec: (20 * 60) / 150,
+      acoustic: SAMPLE_ACOUSTIC,
+    });
+    const r = scorePronunciationApprox(d, SAMPLE_ACOUSTIC);
+    expect(r.qualityFlag).toBe("audio_grounded");
+  });
+});
+
+describe("scoresFromAnalysis", () => {
+  it("returns the same shape regardless of whether acoustic features are present", () => {
+    const transcript = "I think the new approach will work well for the team.";
+    const without = scoresFromAnalysis({ transcript });
+    const with_ = scoresFromAnalysis({ transcript, acoustic: { available: true, features: SAMPLE_ACOUSTIC } });
+    expect(Object.keys(without.scores).sort()).toEqual(Object.keys(with_.scores).sort());
+    expect(Object.keys(without.explanations).sort()).toEqual(Object.keys(with_.explanations).sort());
+  });
+
+  it("clamps scores into 35..95 range", () => {
+    const tiny = scoresFromAnalysis({ transcript: "" });
+    for (const v of Object.values(tiny.scores)) {
+      expect(v).toBeGreaterThanOrEqual(35);
+      expect(v).toBeLessThanOrEqual(95);
+    }
+  });
+});

@@ -1,0 +1,189 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Auravo brand: black / #FF6600 / #CC0000 / white — geometric, data-forward */
+:root {
+  --radius: 1rem;
+  --background: #fafafa;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #ff6600;
+  --primary-foreground: #0a0a0a;
+  --secondary: #f4f4f5;
+  --secondary-foreground: #18181b;
+  --muted: #f4f4f5;
+  --muted-foreground: #737373;
+  --accent: #cc0000;
+  --accent-foreground: #ffffff;
+  --destructive: #b91c1c;
+  --border: #e5e5e5;
+  --input: #e5e5e5;
+  --ring: #ff6600;
+}
+
+.dark {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #0a0a0a;
+  --card-foreground: #ffffff;
+  --popover: #0a0a0a;
+  --popover-foreground: #ffffff;
+  --primary: #ff6600;
+  --primary-foreground: #0a0a0a;
+  --secondary: #171717;
+  --secondary-foreground: #fafafa;
+  --muted: #141414;
+  --muted-foreground: #a3a3a3;
+  --accent: #cc0000;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --border: #262626;
+  --input: #262626;
+  --ring: #ff6600;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  .dark body {
+    background-image: radial-gradient(circle at 1px 1px, color-mix(in oklab, var(--foreground) 6%, transparent) 1px, transparent 0);
+    background-size: 28px 28px;
+    background-attachment: fixed;
+  }
+}
+
+/* Voice bar animation */
+@keyframes voice-bar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.voice-bar {
+  animation: voice-bar 0.9s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+
+/* Wordle board: plain CSS so the 5×6 grid cannot collapse when flex parents shrink-wrap (Tailwind-only grids were laying out as one column). */
+.wordle-board {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 22rem;
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.375rem;
+  perspective: 880px;
+}
+
+@media (min-width: 640px) {
+  .wordle-board {
+    max-width: 28rem;
+  }
+}
+
+.wordle-row {
+  box-sizing: border-box;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.375rem;
+}
+
+@media (min-width: 640px) {
+  .wordle-row {
+    gap: 0.5rem;
+  }
+}
+
+.wordle-tile-slot {
+  min-width: 0;
+}
+
+@keyframes wordle-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-6px);
+  }
+  40% {
+    transform: translateX(6px);
+  }
+  60% {
+    transform: translateX(-4px);
+  }
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.wordle-shake {
+  animation: wordle-shake 0.45s ease-in-out;
+}
+
+@keyframes wordle-flip {
+  0% {
+    transform: rotateX(0deg);
+  }
+  49% {
+    transform: rotateX(90deg);
+  }
+  50% {
+    transform: rotateX(-90deg);
+  }
+  100% {
+    transform: rotateX(0deg);
+  }
+}
+
+.wordle-tile-flip {
+  animation: wordle-flip 0.55s ease-in-out forwards;
+  transform-style: preserve-3d;
+}

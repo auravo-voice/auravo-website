@@ -55,9 +55,9 @@ export async function POST(req: Request) {
 
   await ensureUserProfile(userId, goalId != null ? { onboardingGoalId: goalId } : {});
 
-  const sessionId = randomUUID();
+  const tempKey = randomUUID();
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-  const { absolutePath } = await writeTempAudioFile(sessionId, audio, ext);
+  const { absolutePath } = await writeTempAudioFile(tempKey, audio, ext);
 
   let canonical;
   try {
@@ -86,11 +86,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const transcriptId = randomUUID();
-  const scoresId = randomUUID();
-
-  await createPracticeSession({
-    id: sessionId,
+  const sessionId = await createPracticeSession({
     userId,
     kind: "onboarding_assessment",
     title: "Initial assessment",
@@ -98,14 +94,12 @@ export async function POST(req: Request) {
     audioFile: audio,
   });
   await createSessionTranscript({
-    id: transcriptId,
     sessionId,
     text: canonical.transcript,
     adapter: canonical.adapter,
     analysisJson: serializeAnalysisForPersistence(canonical),
   });
   await createSessionScores({
-    id: scoresId,
     sessionId,
     pronunciation: canonical.scores.pronunciation,
     grammar: canonical.scores.grammar,

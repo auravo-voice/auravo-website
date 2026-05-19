@@ -125,14 +125,12 @@ export async function POST(req: Request) {
   };
 
   await createSessionTranscript({
-    id: randomUUID(),
     sessionId,
     text: fullTranscript,
     adapter: analysis.adapter,
     analysisJson: JSON.stringify(persistedJson),
   });
   await createSessionScores({
-    id: randomUUID(),
     sessionId,
     pronunciation: analysis.scores.pronunciation,
     grammar: analysis.scores.grammar,

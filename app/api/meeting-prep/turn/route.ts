@@ -77,7 +77,6 @@ export async function POST(req: Request) {
   const existing = await listSimulationTurns(sessionId);
   const nextIndex = existing.length;
   await insertSimulationTurn({
-    id: randomUUID(),
     sessionId,
     turnIndex: nextIndex,
     role: "user",
@@ -131,7 +130,6 @@ export async function POST(req: Request) {
   });
 
   await insertSimulationTurn({
-    id: randomUUID(),
     sessionId,
     turnIndex: nextIndex + 1,
     role: "assistant",

@@ -319,8 +319,8 @@ export function SimulationRunner({ init }: { init: RunnerScenarioInit }) {
           <div className="rounded-xl border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
             <p className="font-medium text-foreground">Mic access</p>
             <p className="mt-1">
-              You will record one turn at a time. We transcribe locally and store turn audio under{" "}
-              <code className="rounded bg-muted px-1">data/uploads</code>. Aim for roughly{" "}
+              You will record one turn at a time. We transcribe on the server and store turn audio in your
+              PocketBase account. Aim for roughly{" "}
               {init.kind === "static" ? `${init.recommendedMinutes.min}–${init.recommendedMinutes.max} minutes` : "3–8 minutes"}{" "}
               of conversation.
             </p>

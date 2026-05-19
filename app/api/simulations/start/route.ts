@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createPracticeSession } from "@/db/queries/practice-persist";
 import { ensureUserProfile } from "@/db/queries/user";
@@ -7,6 +6,7 @@ import { getScenarioById, isDifficulty } from "@/lib/simulations/library";
 import { generateCustomScenario } from "@/lib/simulations/turn-coach";
 import { describeSimulationHeader } from "@/lib/simulations/persona";
 import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+import { pocketBaseErrorMessage } from "@/lib/pocketbase/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -82,24 +82,26 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing scenarioId or custom payload." }, { status: 400 });
   }
 
-  const sessionId = randomUUID();
-
-  await createPracticeSession({
-    id: sessionId,
-    userId,
-    kind: "simulation_draft",
-    title: scenarioTitle,
-    segmentsJson: JSON.stringify(manifest),
-  });
-  await insertSimulationTurn({
-    id: randomUUID(),
-    sessionId,
-    turnIndex: 0,
-    role: "assistant",
-    text: openerText,
-    audioRelativePath: null,
-    durationMs: null,
-  });
+  let sessionId: string;
+  try {
+    sessionId = await createPracticeSession({
+      userId,
+      kind: "simulation_draft",
+      title: scenarioTitle,
+      segmentsJson: JSON.stringify(manifest),
+    });
+    await insertSimulationTurn({
+      sessionId,
+      turnIndex: 0,
+      role: "assistant",
+      text: openerText,
+      audioRelativePath: null,
+      durationMs: null,
+    });
+  } catch (e) {
+    console.error("[simulations/start]", e);
+    return NextResponse.json({ error: pocketBaseErrorMessage(e) }, { status: 400 });
+  }
 
   return NextResponse.json({
     ok: true,

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createPracticeSession } from "@/db/queries/practice-persist";
 import { ensureUserProfile } from "@/db/queries/user";
@@ -61,8 +60,6 @@ export async function POST(req: Request) {
 
   await ensureUserProfile(userId);
 
-  const sessionId = randomUUID();
-
   const manifest: MeetingRehearsalManifest = {
     kind: "meeting_rehearsal",
     agenda,
@@ -79,15 +76,13 @@ export async function POST(req: Request) {
       ? `Five-minute quick prep. Hit your opener first — 30 seconds, top of the meeting.`
       : `Whenever you are ready, deliver your opening as if the meeting just started. I'll interject when something needs probing.`;
 
-  await createPracticeSession({
-    id: sessionId,
+  const sessionId = await createPracticeSession({
     userId,
     kind: "meeting_rehearsal_draft",
     title: meetingType === "presentation" ? "Presentation rehearsal" : "Meeting rehearsal",
     segmentsJson: JSON.stringify(manifest),
   });
   await insertSimulationTurn({
-    id: randomUUID(),
     sessionId,
     turnIndex: 0,
     role: "assistant",

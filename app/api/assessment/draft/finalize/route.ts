@@ -120,15 +120,13 @@ export async function POST(req: Request) {
     );
   }
 
-  const sessionId = randomUUID();
   const manifest = orderedDrafts.map((d) => ({
     kind: d.segmentKind,
     audioRelativePath: d.audioRelativePath,
     durationMs: d.durationMs,
   }));
 
-  await createPracticeSession({
-    id: sessionId,
+  const sessionId = await createPracticeSession({
     userId,
     kind: "onboarding_assessment",
     title: "Initial assessment",
@@ -136,14 +134,12 @@ export async function POST(req: Request) {
     segmentsJson: JSON.stringify(manifest),
   });
   await createSessionTranscript({
-    id: randomUUID(),
     sessionId,
     text: analysis.transcript,
     adapter: analysis.adapter,
     analysisJson: serializeAnalysisForPersistence(analysis),
   });
   await createSessionScores({
-    id: randomUUID(),
     sessionId,
     pronunciation: analysis.scores.pronunciation,
     grammar: analysis.scores.grammar,

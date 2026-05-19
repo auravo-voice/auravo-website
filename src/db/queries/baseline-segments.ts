@@ -76,17 +76,16 @@ export async function replaceDraftSegment(input: {
     }
     const files: Record<string, File | Blob> = {};
     if (input.audioFile) files.audio = input.audioFile;
-    await pb.collection(PB.baselineSegments).create(
-      {
-        id: input.id,
-        user: input.userId,
-        segment_kind: input.segmentKind,
-        duration_ms: input.durationMs,
-        transcript: input.transcript,
-        session: "",
-      },
-      Object.keys(files).length ? { files } : undefined,
-    );
+  await pb.collection(PB.baselineSegments).create(
+    {
+      user: input.userId,
+      segment_kind: input.segmentKind,
+      duration_ms: input.durationMs,
+      transcript: input.transcript,
+      session: "",
+    },
+    Object.keys(files).length ? { files } : undefined,
+  );
   } catch (error) {
     rethrowIfNotMissingCollection(error);
   }

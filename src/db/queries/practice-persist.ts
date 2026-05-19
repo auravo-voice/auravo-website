@@ -5,7 +5,8 @@ import { getServerPocketBase } from "@/lib/pocketbase/server";
 import { PB } from "@/db/collections";
 
 export type CreatePracticeSessionInput = {
-  id: string;
+  /** Ignored — PocketBase assigns its own record id (not UUID). */
+  id?: string;
   userId: string;
   kind: string;
   title?: string | null;
@@ -14,13 +15,13 @@ export type CreatePracticeSessionInput = {
   audioFile?: File | Blob | null;
 };
 
+/** Creates a practice session; returns the PocketBase record id. */
 export async function createPracticeSession(
   input: CreatePracticeSessionInput,
   pb?: PocketBase,
-): Promise<void> {
+): Promise<string> {
   const client = pb ?? (await getServerPocketBase());
   const body: Record<string, unknown> = {
-    id: input.id,
     user: input.userId,
     kind: input.kind,
     title: input.title ?? null,
@@ -29,31 +30,30 @@ export async function createPracticeSession(
   };
   const files: Record<string, File | Blob> = {};
   if (input.audioFile) files.audio = input.audioFile;
-  await client.collection(PB.practiceSessions).create(
+  const record = await client.collection(PB.practiceSessions).create(
     body,
     Object.keys(files).length ? { files } : undefined,
   );
+  return record.id;
 }
 
 export async function createSessionTranscript(input: {
-  id: string;
   sessionId: string;
   text: string;
   adapter: string;
   analysisJson: string;
-}): Promise<void> {
+}): Promise<string> {
   const pb = await getServerPocketBase();
-  await pb.collection(PB.sessionTranscripts).create({
-    id: input.id,
+  const record = await pb.collection(PB.sessionTranscripts).create({
     session: input.sessionId,
     text: input.text,
     adapter: input.adapter,
     analysis_json: input.analysisJson,
   });
+  return record.id;
 }
 
 export async function createSessionScores(input: {
-  id: string;
   sessionId: string;
   pronunciation: number;
   grammar: number;
@@ -61,10 +61,9 @@ export async function createSessionScores(input: {
   vocabulary: number;
   fillerWords: number;
   pacing: number;
-}): Promise<void> {
+}): Promise<string> {
   const pb = await getServerPocketBase();
-  await pb.collection(PB.sessionScores).create({
-    id: input.id,
+  const record = await pb.collection(PB.sessionScores).create({
     session: input.sessionId,
     pronunciation: input.pronunciation,
     grammar: input.grammar,
@@ -73,6 +72,7 @@ export async function createSessionScores(input: {
     filler_words: input.fillerWords,
     pacing: input.pacing,
   });
+  return record.id;
 }
 
 export async function createOnboardingBaseline(userId: string, sessionId: string): Promise<void> {

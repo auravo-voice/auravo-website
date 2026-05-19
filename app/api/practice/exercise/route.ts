@@ -48,9 +48,9 @@ export async function POST(req: Request) {
 
   await ensureUserProfile(userId);
 
-  const sessionId = randomUUID();
+  const tempKey = randomUUID();
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-  const { absolutePath } = await writeTempAudioFile(sessionId, audio, ext);
+  const { absolutePath } = await writeTempAudioFile(tempKey, audio, ext);
 
   let analysis;
   try {
@@ -89,11 +89,7 @@ export async function POST(req: Request) {
     );
   }
 
-  const transcriptId = randomUUID();
-  const scoresId = randomUUID();
-
-  await createPracticeSession({
-    id: sessionId,
+  const sessionId = await createPracticeSession({
     userId,
     kind: "daily_practice",
     title: prompt.title,
@@ -101,14 +97,12 @@ export async function POST(req: Request) {
     audioFile: audio,
   });
   await createSessionTranscript({
-    id: transcriptId,
     sessionId,
     text: analysis.transcript,
     adapter: analysis.adapter,
     analysisJson: serializeAnalysisForPersistence(analysis),
   });
   await createSessionScores({
-    id: scoresId,
     sessionId,
     pronunciation: analysis.scores.pronunciation,
     grammar: analysis.scores.grammar,

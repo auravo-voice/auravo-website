@@ -63,7 +63,8 @@ export async function getSimulationSession(sessionId: string): Promise<{
 }
 
 export async function insertSimulationTurn(input: {
-  id: string;
+  /** Ignored — PocketBase assigns record id. */
+  id?: string;
   sessionId: string;
   turnIndex: number;
   role: "user" | "assistant";
@@ -71,10 +72,9 @@ export async function insertSimulationTurn(input: {
   audioRelativePath: string | null;
   durationMs: number | null;
   audioFile?: File | Blob | null;
-}): Promise<void> {
+}): Promise<string> {
   const pb = await getServerPocketBase();
   const body: Record<string, unknown> = {
-    id: input.id,
     session: input.sessionId,
     turn_index: input.turnIndex,
     role: input.role,
@@ -85,7 +85,11 @@ export async function insertSimulationTurn(input: {
   if (input.audioFile) {
     files.audio = input.audioFile;
   }
-  await pb.collection(PB.simulationTurns).create(body, Object.keys(files).length ? { files } : undefined);
+  const record = await pb.collection(PB.simulationTurns).create(
+    body,
+    Object.keys(files).length ? { files } : undefined,
+  );
+  return record.id;
 }
 
 /** @deprecated Sync alias — calls async insert. */

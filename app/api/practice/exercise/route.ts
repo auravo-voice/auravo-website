@@ -1,19 +1,17 @@
 import { randomUUID } from "node:crypto";
-import fs from "node:fs/promises";
-import path from "node:path";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getDataDir, getDb } from "@/db/client";
-import { practiceSession, sessionScores, sessionTranscript } from "@/db/schema";
+import {
+  createPracticeSession,
+  createSessionScores,
+  createSessionTranscript,
+} from "@/db/queries/practice-persist";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
 import { ensureUserProfile } from "@/db/queries/user";
-import {
-  AURAVO_USER_ID_COOKIE,
-  auravoUserIdCookieOptions,
-} from "@/lib/auth/auravo-user-cookie";
 import { PRACTICE_LIBRARY } from "@/lib/practice/library";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,11 +21,9 @@ export const dynamic = "force-dynamic";
  * scores + explanations + recommendation logic match every other speaking flow in the product.
  */
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  let userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value;
-  if (!userId) {
-    userId = randomUUID();
-  }
+  const auth = await requireApiUserId();
+  if (isAuthError(auth)) return auth;
+  const userId = auth;
 
   let form: FormData;
   try {
@@ -53,14 +49,8 @@ export async function POST(req: Request) {
   await ensureUserProfile(userId);
 
   const sessionId = randomUUID();
-  const dataDir = getDataDir();
-  const uploadsDir = path.join(dataDir, "uploads");
-  await fs.mkdir(uploadsDir, { recursive: true });
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-  const relativePath = path.join("uploads", `${sessionId}.${ext}`).split(path.sep).join("/");
-  const absolutePath = path.join(dataDir, relativePath);
-  const buf = Buffer.from(await audio.arrayBuffer());
-  await fs.writeFile(absolutePath, buf);
+  const { absolutePath } = await writeTempAudioFile(sessionId, audio, ext);
 
   let analysis;
   try {
@@ -99,51 +89,39 @@ export async function POST(req: Request) {
     );
   }
 
-  const now = Date.now();
   const transcriptId = randomUUID();
   const scoresId = randomUUID();
-  const db = getDb();
-  db.transaction((tx) => {
-    tx.insert(practiceSession)
-      .values({
-        id: sessionId,
-        userId,
-        kind: "daily_practice",
-        title: prompt.title,
-        audioRelativePath: relativePath,
-        durationMs: Number.isFinite(durationMs) ? durationMs : null,
-        createdAt: now,
-      })
-      .run();
-    tx.insert(sessionTranscript)
-      .values({
-        id: transcriptId,
-        sessionId,
-        text: analysis.transcript,
-        adapter: analysis.adapter,
-        analysisJson: serializeAnalysisForPersistence(analysis),
-        createdAt: now,
-      })
-      .run();
-    tx.insert(sessionScores)
-      .values({
-        id: scoresId,
-        sessionId,
-        pronunciation: analysis.scores.pronunciation,
-        grammar: analysis.scores.grammar,
-        fluency: analysis.scores.fluency,
-        vocabulary: analysis.scores.vocabulary,
-        fillerWords: analysis.scores.filler_words,
-        pacing: analysis.scores.pacing,
-        createdAt: now,
-      })
-      .run();
+
+  await createPracticeSession({
+    id: sessionId,
+    userId,
+    kind: "daily_practice",
+    title: prompt.title,
+    durationMs: Number.isFinite(durationMs) ? durationMs : null,
+    audioFile: audio,
+  });
+  await createSessionTranscript({
+    id: transcriptId,
+    sessionId,
+    text: analysis.transcript,
+    adapter: analysis.adapter,
+    analysisJson: serializeAnalysisForPersistence(analysis),
+  });
+  await createSessionScores({
+    id: scoresId,
+    sessionId,
+    pronunciation: analysis.scores.pronunciation,
+    grammar: analysis.scores.grammar,
+    fluency: analysis.scores.fluency,
+    vocabulary: analysis.scores.vocabulary,
+    fillerWords: analysis.scores.filler_words,
+    pacing: analysis.scores.pacing,
   });
 
   const dimensions = scoresToRadarDimensions(analysis.scores);
   const averageScore = Math.round(dimensions.reduce((a, d) => a + d.score, 0) / dimensions.length);
 
-  const res = NextResponse.json({
+  return NextResponse.json({
     ok: true,
     userId,
     sessionId,
@@ -175,6 +153,4 @@ export async function POST(req: Request) {
     taskReview: analysis.taskReview,
     recommendedExercises: analysis.candidateExercises,
   });
-  res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
-  return res;
 }

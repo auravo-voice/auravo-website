@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { DashboardBaselineHandoffBootstrap } from "./dashboard-baseline-handoff-bootstrap";
 import { DashboardCoachNarrativeIntro, DashboardCoachNarrativeTodaySession } from "./dashboard-coach-narrative";
 import { DashboardFreshLoad } from "./dashboard-fresh-load";
@@ -10,7 +11,7 @@ import type { OnboardingGoalId } from "@/lib/coach/dashboard";
 import { getOnboardingGoalLabel, isOnboardingGoalId } from "@/lib/coach/dashboard";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
-import { getLocalUserId } from "@/lib/auth/local-user-id";
+import { getAuthenticatedUserId } from "@/lib/auth/session";
 import { AURAVO_PENDING_BASELINE_SESSION_COOKIE } from "@/lib/auth/auravo-user-cookie-constants";
 import { getBaselineBundleForPracticeSession, getOnboardingBaselineForUser, type BaselineBundle } from "@/db/queries/baseline";
 import { getUserSessionStats } from "@/db/queries/sessions";
@@ -124,14 +125,6 @@ function DashboardEmptyState() {
   );
 }
 
-function NoSessionCookie() {
-  return (
-    <div className="mx-auto max-w-lg py-8 text-sm text-muted-foreground">
-      Your browser session could not be established. Refresh the page so a secure cookie can be set, then try again.
-    </div>
-  );
-}
-
 async function DashboardCoachContent({
   onboardingGoalId,
   sessionIdFromUrl,
@@ -155,16 +148,12 @@ async function DashboardCoachContent({
     baseline = await getBaselineBundleForPracticeSession(resolvedSessionId);
   }
 
-  const cookieUserId = await getLocalUserId();
-  if (!baseline && cookieUserId) {
-    await ensureUserProfile(cookieUserId);
-    baseline = await getOnboardingBaselineForUser(cookieUserId);
+  const authUserId = await getAuthenticatedUserId();
+  if (!baseline && authUserId) {
+    await ensureUserProfile(authUserId);
+    baseline = await getOnboardingBaselineForUser(authUserId);
   } else if (baseline) {
     await ensureUserProfile(baseline.user.id);
-  }
-
-  if (!baseline && !cookieUserId) {
-    return <NoSessionCookie />;
   }
 
   if (!baseline) {
@@ -322,6 +311,9 @@ type DashboardPageProps = {
 };
 
 export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+  const userId = await getAuthenticatedUserId();
+  if (!userId) redirect("/login");
+
   const sp = searchParams ? await searchParams : {};
   const raw = sp.goal;
   const fromQuery = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;

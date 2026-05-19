@@ -55,12 +55,12 @@ export async function ollamaChatStructured<T>(options: {
     if (timedOut) {
       const sec = Math.round(timeoutMs / 1000);
       throw new OllamaCoachError(
-        `The local coach did not finish within ${sec}s (AbortSignal.timeout). Increase AURAVO_COACH_TIMEOUT_MS in .env.local or use a smaller/faster model (e.g. qwen2.5:3b).`,
+        `The local coach did not finish within ${sec}s (AbortSignal.timeout). Increase AURAVO_COACH_TIMEOUT_MS in .env.local or use a smaller/faster model (e.g. qwen2.5:3b instead of 7b).`,
         e,
       );
     }
     throw new OllamaCoachError(
-      "Could not reach the local coach runtime. Start Ollama locally and install a model (for example: ollama pull qwen2.5:3b).",
+      "Could not reach the local coach runtime. Start Ollama locally and install a model (for example: ollama pull qwen2.5:7b).",
       e,
     );
   }

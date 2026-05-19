@@ -4,9 +4,9 @@ export function getOllamaBaseUrl(): string {
   return (process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
 }
 
-/** Default: smaller Qwen for faster local dev; override with OLLAMA_MODEL. */
+/** Default coach model; override with OLLAMA_MODEL. */
 export function getOllamaModel(): string {
-  return process.env.OLLAMA_MODEL ?? "qwen2.5:3b";
+  return process.env.OLLAMA_MODEL ?? "qwen2.5:7b";
 }
 
 const COACH_TIMEOUT_MIN = 30_000;

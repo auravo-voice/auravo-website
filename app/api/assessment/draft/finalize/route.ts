@@ -1,23 +1,18 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getDataDir, getDb } from "@/db/client";
 import {
-  onboardingBaseline,
-  practiceSession,
-  sessionScores,
-  sessionTranscript,
-} from "@/db/schema";
+  createOnboardingBaseline,
+  createPracticeSession,
+  createSessionScores,
+  createSessionTranscript,
+} from "@/db/queries/practice-persist";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import { getOnboardingGoalLabel, isOnboardingGoalId } from "@/lib/coach/dashboard";
 import { ensureUserProfile } from "@/db/queries/user";
 import { writeBaselineHandoffToken } from "@/lib/assessment/baseline-handoff-disk";
 import {
   AURAVO_PENDING_BASELINE_SESSION_COOKIE,
-  AURAVO_USER_ID_COOKIE,
   auravoPendingBaselineSessionCookieOptions,
-  auravoUserIdCookieOptions,
 } from "@/lib/auth/auravo-user-cookie";
 import {
   ASSESSMENT_SEGMENT_KINDS,
@@ -28,9 +23,11 @@ import {
   attachDraftSegmentsToSession,
   listDraftSegments,
 } from "@/db/queries/baseline-segments";
-import { isUuidLike } from "@/lib/util/is-uuid-like";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+import { getServerPocketBase } from "@/lib/pocketbase/server";
+import { resolveAudioAbsolutePaths } from "@/lib/storage/audio-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,11 +42,9 @@ export const dynamic = "force-dynamic";
  * `degraded: true` flag and the UI surfaces a warning.
  */
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value ?? "";
-  if (!userId || !isUuidLike(userId)) {
-    return NextResponse.json({ error: "No active session. Start the assessment again." }, { status: 400 });
-  }
+  const auth = await requireApiUserId();
+  if (isAuthError(auth)) return auth;
+  const userId = auth;
 
   let body: unknown = {};
   try {
@@ -81,16 +76,17 @@ export async function POST(req: Request) {
   }
 
   const orderedDrafts = ASSESSMENT_SEGMENT_KINDS.map((k) => haveByKind[k]!);
-  const dataDir = getDataDir();
-  const absolutePaths = orderedDrafts.map((d) => path.join(dataDir, d.audioRelativePath));
+  const pb = await getServerPocketBase();
+  const absolutePaths = await resolveAudioAbsolutePaths(
+    orderedDrafts.map((d) => d.audioRelativePath),
+    pb,
+  );
   const totalDurationMs = orderedDrafts.reduce((a, d) => a + (d.durationMs ?? 0), 0) || null;
   const fallbackTranscript = orderedDrafts
     .map((d) => (d.transcript ?? "").trim())
     .filter(Boolean)
     .join("\n\n");
 
-  // Run the canonical analysis on the concatenated audio. If real transcription is unavailable,
-  // gracefully degrade to the per-segment transcripts that were already produced live.
   let analysis;
   let degraded = false;
   try {
@@ -125,65 +121,44 @@ export async function POST(req: Request) {
   }
 
   const sessionId = randomUUID();
-  const primaryAudio = orderedDrafts[0]!.audioRelativePath;
   const manifest = orderedDrafts.map((d) => ({
     kind: d.segmentKind,
     audioRelativePath: d.audioRelativePath,
     durationMs: d.durationMs,
   }));
-  const now = Date.now();
 
-  const db = getDb();
-  db.transaction((tx) => {
-    tx.insert(practiceSession)
-      .values({
-        id: sessionId,
-        userId,
-        kind: "onboarding_assessment",
-        title: "Initial assessment",
-        audioRelativePath: primaryAudio,
-        durationMs: totalDurationMs,
-        createdAt: now,
-        segmentsJson: JSON.stringify(manifest),
-      })
-      .run();
-    tx.insert(sessionTranscript)
-      .values({
-        id: randomUUID(),
-        sessionId,
-        text: analysis.transcript,
-        adapter: analysis.adapter,
-        analysisJson: serializeAnalysisForPersistence(analysis),
-        createdAt: now,
-      })
-      .run();
-    tx.insert(sessionScores)
-      .values({
-        id: randomUUID(),
-        sessionId,
-        pronunciation: analysis.scores.pronunciation,
-        grammar: analysis.scores.grammar,
-        fluency: analysis.scores.fluency,
-        vocabulary: analysis.scores.vocabulary,
-        fillerWords: analysis.scores.filler_words,
-        pacing: analysis.scores.pacing,
-        createdAt: now,
-      })
-      .run();
-    tx.insert(onboardingBaseline)
-      .values({ userId, sessionId, createdAt: now })
-      .onConflictDoUpdate({
-        target: onboardingBaseline.userId,
-        set: { sessionId, createdAt: now },
-      })
-      .run();
+  await createPracticeSession({
+    id: sessionId,
+    userId,
+    kind: "onboarding_assessment",
+    title: "Initial assessment",
+    durationMs: totalDurationMs,
+    segmentsJson: JSON.stringify(manifest),
   });
-  attachDraftSegmentsToSession(userId, sessionId);
+  await createSessionTranscript({
+    id: randomUUID(),
+    sessionId,
+    text: analysis.transcript,
+    adapter: analysis.adapter,
+    analysisJson: serializeAnalysisForPersistence(analysis),
+  });
+  await createSessionScores({
+    id: randomUUID(),
+    sessionId,
+    pronunciation: analysis.scores.pronunciation,
+    grammar: analysis.scores.grammar,
+    fluency: analysis.scores.fluency,
+    vocabulary: analysis.scores.vocabulary,
+    fillerWords: analysis.scores.filler_words,
+    pacing: analysis.scores.pacing,
+  });
+  await createOnboardingBaseline(userId, sessionId);
+  await attachDraftSegmentsToSession(userId, sessionId);
 
   try {
-    writeBaselineHandoffToken(sessionId, userId);
+    await writeBaselineHandoffToken(sessionId, userId);
   } catch {
-    /* disk handoff is best-effort; SQLite row remains the source of truth */
+    /* handoff is best-effort */
   }
 
   const dimensions = scoresToRadarDimensions(analysis.scores);
@@ -212,7 +187,6 @@ export async function POST(req: Request) {
     recommendedExercises: analysis.candidateExercises,
     degraded,
   });
-  res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
   res.cookies.set(AURAVO_PENDING_BASELINE_SESSION_COOKIE, sessionId, auravoPendingBaselineSessionCookieOptions());
   return res;
 }

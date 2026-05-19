@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getDataDir, getDb } from "@/db/client";
-import { sessionScores, sessionTranscript } from "@/db/schema";
-import { AURAVO_USER_ID_COOKIE } from "@/lib/auth/auravo-user-cookie";
+import { createSessionScores, createSessionTranscript } from "@/db/queries/practice-persist";
 import { isUuidLike } from "@/lib/util/is-uuid-like";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import {
@@ -14,21 +10,17 @@ import {
 } from "@/db/queries/simulations";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+import { getServerPocketBase } from "@/lib/pocketbase/server";
+import { resolveAudioAbsolutePaths } from "@/lib/storage/audio-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * Closes out a simulation. We concatenate the learner's per-turn audio into one WAV and run the
- * canonical {@link runAnalysis} pipeline so scoring matches every other speaking flow. Conversational
- * metrics (response latency, turn balance, etc.) come from the simulation_turn metadata.
- */
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  const userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value;
-  if (!userId) {
-    return NextResponse.json({ error: "No active session." }, { status: 401 });
-  }
+  const auth = await requireApiUserId();
+  if (isAuthError(auth)) return auth;
+  const userId = auth;
 
   let body: unknown = {};
   try {
@@ -62,14 +54,11 @@ export async function POST(req: Request) {
     .map((t) => `${t.role === "user" ? "You" : "Partner"}: ${t.text}`)
     .join("\n\n");
 
-  const dataDir = getDataDir();
-  const userAudioPaths = userTurns
-    .filter((t) => t.audioRelativePath != null)
-    .map((t) => path.join(dataDir, t.audioRelativePath as string));
+  const pb = await getServerPocketBase();
+  const audioRefs = userTurns.map((t) => t.audioRelativePath).filter((p): p is string => p != null);
+  const userAudioPaths = await resolveAudioAbsolutePaths(audioRefs, pb);
   const totalDurationMs = userTurns.reduce((a, t) => a + (t.durationMs ?? 0), 0) || null;
 
-  // If at least one user turn has audio, run the full canonical pipeline on the concatenated audio.
-  // Otherwise fall back to the pre-transcribed text path so the route still produces a result.
   let analysis;
   let degraded = false;
   try {
@@ -116,34 +105,25 @@ export async function POST(req: Request) {
     });
   }
 
-  const db = getDb();
-  db.transaction((tx) => {
-    tx.insert(sessionTranscript)
-      .values({
-        id: randomUUID(),
-        sessionId,
-        text: fullTranscript,
-        adapter: analysis.adapter,
-        analysisJson: serializeAnalysisForPersistence(analysis),
-        createdAt: Date.now(),
-      })
-      .run();
-    tx.insert(sessionScores)
-      .values({
-        id: randomUUID(),
-        sessionId,
-        pronunciation: analysis.scores.pronunciation,
-        grammar: analysis.scores.grammar,
-        fluency: analysis.scores.fluency,
-        vocabulary: analysis.scores.vocabulary,
-        fillerWords: analysis.scores.filler_words,
-        pacing: analysis.scores.pacing,
-        createdAt: Date.now(),
-      })
-      .run();
+  await createSessionTranscript({
+    id: randomUUID(),
+    sessionId,
+    text: fullTranscript,
+    adapter: analysis.adapter,
+    analysisJson: serializeAnalysisForPersistence(analysis),
+  });
+  await createSessionScores({
+    id: randomUUID(),
+    sessionId,
+    pronunciation: analysis.scores.pronunciation,
+    grammar: analysis.scores.grammar,
+    fluency: analysis.scores.fluency,
+    vocabulary: analysis.scores.vocabulary,
+    fillerWords: analysis.scores.filler_words,
+    pacing: analysis.scores.pacing,
   });
 
-  finalizeSimulationSession({
+  await finalizeSimulationSession({
     sessionId,
     totalDurationMs,
     segmentsJson: JSON.stringify({

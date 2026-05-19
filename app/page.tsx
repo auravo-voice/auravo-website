@@ -24,7 +24,7 @@ export default function HomePage() {
             Set your goal
           </Link>{" "}
           or{" "}
-          <Link href="/auth" className="font-medium text-primary underline-offset-4 hover:underline">
+          <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
             sign in
           </Link>
           .

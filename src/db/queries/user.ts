@@ -1,33 +1,32 @@
 import "server-only";
-import { eq } from "drizzle-orm";
-import { getDb } from "@/db/client";
-import { userProfile } from "@/db/schema";
 
-export async function ensureUserProfile(userId: string, partial?: { displayName?: string; onboardingGoalId?: string | null }) {
-  const db = getDb();
-  const now = Date.now();
-  const existing = await db.select().from(userProfile).where(eq(userProfile.id, userId)).limit(1);
-  if (existing[0]) {
-    if (partial?.displayName != null || partial?.onboardingGoalId !== undefined) {
-      await db
-        .update(userProfile)
-        .set({
-          ...(partial.displayName != null ? { displayName: partial.displayName } : {}),
-          ...(partial.onboardingGoalId !== undefined ? { onboardingGoalId: partial.onboardingGoalId } : {}),
-          updatedAt: now,
-        })
-        .where(eq(userProfile.id, userId));
-    }
-    const u = await db.select().from(userProfile).where(eq(userProfile.id, userId)).limit(1);
-    return u[0]!;
+import { getServerPocketBase } from "@/lib/pocketbase/server";
+import { PB } from "@/db/collections";
+import { mapUserRecord } from "@/db/pocketbase-map";
+import type { UserProfileRow } from "@/db/types";
+
+export async function ensureUserProfile(
+  userId: string,
+  partial?: { displayName?: string; onboardingGoalId?: string | null },
+): Promise<UserProfileRow> {
+  const pb = await getServerPocketBase();
+  const patch: Record<string, unknown> = {};
+  if (partial?.displayName != null) {
+    patch.display_name = partial.displayName;
+    patch.name = partial.displayName;
   }
-  await db.insert(userProfile).values({
-    id: userId,
-    displayName: partial?.displayName ?? "Learner",
-    onboardingGoalId: partial?.onboardingGoalId ?? null,
-    createdAt: now,
-    updatedAt: now,
-  });
-  const u = await db.select().from(userProfile).where(eq(userProfile.id, userId)).limit(1);
-  return u[0]!;
+  if (partial?.onboardingGoalId !== undefined) {
+    patch.onboarding_goal_id = partial.onboardingGoalId;
+  }
+
+  let record;
+  try {
+    record = await pb.collection(PB.users).getOne(userId);
+    if (Object.keys(patch).length > 0) {
+      record = await pb.collection(PB.users).update(userId, patch);
+    }
+  } catch {
+    record = await pb.collection(PB.users).getOne(userId);
+  }
+  return mapUserRecord(record);
 }

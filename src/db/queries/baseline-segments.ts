@@ -1,7 +1,13 @@
 import "server-only";
-import { and, eq, isNull } from "drizzle-orm";
-import { getDb } from "@/db/client";
-import { baselineSegment } from "@/db/schema";
+
+import { getServerPocketBase } from "@/lib/pocketbase/server";
+import { PB } from "@/db/collections";
+import { pbTs } from "@/db/pocketbase-map";
+import { pocketBaseFileUrl } from "@/lib/storage/audio-path";
+import {
+  isMissingPocketBaseCollection,
+  POCKETBASE_WEB_COLLECTIONS_HINT,
+} from "@/lib/pocketbase/errors";
 import type { AssessmentSegmentKind } from "@/lib/assessment/segments";
 
 export type DraftSegmentRow = {
@@ -12,78 +18,105 @@ export type DraftSegmentRow = {
   createdAt: number;
 };
 
-/** All in-progress segments for this learner (session_id IS NULL). */
-export async function listDraftSegments(userId: string): Promise<DraftSegmentRow[]> {
-  const db = getDb();
-  const rows = await db
-    .select({
-      segmentKind: baselineSegment.segmentKind,
-      audioRelativePath: baselineSegment.audioRelativePath,
-      durationMs: baselineSegment.durationMs,
-      transcript: baselineSegment.transcript,
-      createdAt: baselineSegment.createdAt,
-    })
-    .from(baselineSegment)
-    .where(and(eq(baselineSegment.userId, userId), isNull(baselineSegment.sessionId)));
-  return rows
-    .filter(
-      (r): r is DraftSegmentRow =>
-        r.segmentKind === "passage" ||
-        r.segmentKind === "open_q1" ||
-        r.segmentKind === "open_q2" ||
-        r.segmentKind === "visual",
-    )
-    .map((r) => ({ ...r, segmentKind: r.segmentKind as AssessmentSegmentKind }));
+const SEGMENT_KINDS: AssessmentSegmentKind[] = ["passage", "open_q1", "open_q2", "visual"];
+
+function segmentAudioRef(record: { id: string; audio?: string }): string {
+  const file = typeof record.audio === "string" ? record.audio : "";
+  if (!file) return "";
+  return pocketBaseFileUrl(PB.baselineSegments, record.id, file);
 }
 
-/** Overwrites any existing draft segment of the same kind (re-record case). */
-export function replaceDraftSegment(input: {
+function rethrowIfNotMissingCollection(error: unknown): never {
+  if (isMissingPocketBaseCollection(error)) {
+    throw new Error(`${POCKETBASE_WEB_COLLECTIONS_HINT} (collection: ${PB.baselineSegments})`);
+  }
+  throw error;
+}
+
+export async function listDraftSegments(userId: string): Promise<DraftSegmentRow[]> {
+  const pb = await getServerPocketBase();
+  try {
+    const rows = await pb.collection(PB.baselineSegments).getFullList({
+      filter: `user = "${userId}" && (session = "" || session = null)`,
+    });
+    return rows
+      .filter((r) => SEGMENT_KINDS.includes(r.segment_kind as AssessmentSegmentKind))
+      .map((r) => ({
+        segmentKind: r.segment_kind as AssessmentSegmentKind,
+        audioRelativePath: segmentAudioRef(r as { id: string; audio?: string }),
+        durationMs: typeof r.duration_ms === "number" ? r.duration_ms : null,
+        transcript: typeof r.transcript === "string" ? r.transcript : null,
+        createdAt: pbTs(r),
+      }));
+  } catch (error) {
+    if (isMissingPocketBaseCollection(error)) {
+      console.warn(`[baseline_segments] ${POCKETBASE_WEB_COLLECTIONS_HINT}`);
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function replaceDraftSegment(input: {
   id: string;
   userId: string;
   segmentKind: AssessmentSegmentKind;
   audioRelativePath: string;
   durationMs: number | null;
   transcript: string | null;
-}): void {
-  const db = getDb();
-  db.transaction((tx) => {
-    tx.delete(baselineSegment)
-      .where(
-        and(
-          eq(baselineSegment.userId, input.userId),
-          eq(baselineSegment.segmentKind, input.segmentKind),
-          isNull(baselineSegment.sessionId),
-        ),
-      )
-      .run();
-    tx.insert(baselineSegment)
-      .values({
+  audioFile?: File | Blob;
+}): Promise<void> {
+  const pb = await getServerPocketBase();
+  try {
+    const existing = await pb.collection(PB.baselineSegments).getFullList({
+      filter: `user = "${input.userId}" && segment_kind = "${input.segmentKind}" && (session = "" || session = null)`,
+    });
+    for (const row of existing) {
+      await pb.collection(PB.baselineSegments).delete(row.id);
+    }
+    const files: Record<string, File | Blob> = {};
+    if (input.audioFile) files.audio = input.audioFile;
+    await pb.collection(PB.baselineSegments).create(
+      {
         id: input.id,
-        userId: input.userId,
-        segmentKind: input.segmentKind,
-        audioRelativePath: input.audioRelativePath,
-        durationMs: input.durationMs,
+        user: input.userId,
+        segment_kind: input.segmentKind,
+        duration_ms: input.durationMs,
         transcript: input.transcript,
-        sessionId: null,
-        createdAt: Date.now(),
-      })
-      .run();
-  });
+        session: "",
+      },
+      Object.keys(files).length ? { files } : undefined,
+    );
+  } catch (error) {
+    rethrowIfNotMissingCollection(error);
+  }
 }
 
-/** Mark all draft segments for this user as belonging to the freshly-created practice_session. */
-export function attachDraftSegmentsToSession(userId: string, sessionId: string): void {
-  const db = getDb();
-  db.update(baselineSegment)
-    .set({ sessionId })
-    .where(and(eq(baselineSegment.userId, userId), isNull(baselineSegment.sessionId)))
-    .run();
+export async function attachDraftSegmentsToSession(userId: string, sessionId: string): Promise<void> {
+  const pb = await getServerPocketBase();
+  try {
+    const rows = await pb.collection(PB.baselineSegments).getFullList({
+      filter: `user = "${userId}" && (session = "" || session = null)`,
+    });
+    for (const row of rows) {
+      await pb.collection(PB.baselineSegments).update(row.id, { session: sessionId });
+    }
+  } catch (error) {
+    rethrowIfNotMissingCollection(error);
+  }
 }
 
-/** Wipe any in-progress segments (e.g. learner taps "Start over"). */
-export function clearDraftSegments(userId: string): void {
-  const db = getDb();
-  db.delete(baselineSegment)
-    .where(and(eq(baselineSegment.userId, userId), isNull(baselineSegment.sessionId)))
-    .run();
+export async function clearDraftSegments(userId: string): Promise<void> {
+  const pb = await getServerPocketBase();
+  try {
+    const rows = await pb.collection(PB.baselineSegments).getFullList({
+      filter: `user = "${userId}" && (session = "" || session = null)`,
+    });
+    for (const row of rows) {
+      await pb.collection(PB.baselineSegments).delete(row.id);
+    }
+  } catch (error) {
+    if (isMissingPocketBaseCollection(error)) return;
+    throw error;
+  }
 }

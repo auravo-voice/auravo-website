@@ -4,7 +4,8 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 
-import { getDataDir } from "@/db/client";
+import { getTempAudioRoot } from "@/lib/storage/temp-audio";
+import { resolveAudioAbsolutePath } from "@/lib/storage/audio-path";
 import { extractAcousticFeatures } from "@/lib/audio/acoustic";
 import { extractVadFeatures } from "@/lib/audio/vad";
 import {
@@ -109,9 +110,12 @@ export type RunAnalysisInput = {
   };
 };
 
-function asAbsolute(relativeOrAbsolute: string): string {
+async function asAbsolute(relativeOrAbsolute: string): Promise<string> {
   if (path.isAbsolute(relativeOrAbsolute)) return relativeOrAbsolute;
-  return path.join(getDataDir(), relativeOrAbsolute);
+  if (relativeOrAbsolute.startsWith("http://") || relativeOrAbsolute.startsWith("https://")) {
+    return resolveAudioAbsolutePath(relativeOrAbsolute);
+  }
+  return path.join(getTempAudioRoot(), path.basename(relativeOrAbsolute));
 }
 
 /**
@@ -128,7 +132,7 @@ async function resolveAudio(input: RunAnalysisInput["audio"]): Promise<{
 } | null> {
   if (!input) return null;
   if (input.mode === "single") {
-    const abs = asAbsolute(input.absolutePath);
+    const abs = await asAbsolute(input.absolutePath);
     if (!existsSync(abs)) {
       throw new Error(`runAnalysis: audio file missing: ${abs}`);
     }
@@ -140,7 +144,7 @@ async function resolveAudio(input: RunAnalysisInput["audio"]): Promise<{
       featureCacheKey,
     };
   }
-  const abs = input.absolutePaths.map(asAbsolute);
+  const abs = await Promise.all(input.absolutePaths.map((p) => asAbsolute(p)));
   const featureCacheKey = await fingerprintAudioInputs(abs);
   const { wavPath, workDir } = await concatAudioToWav(abs);
   return {

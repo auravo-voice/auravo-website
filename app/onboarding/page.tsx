@@ -29,9 +29,14 @@ export default function OnboardingPage() {
             <VocaBadge className="w-fit scale-90 origin-left" />
           </div>
         </Link>
-        <Button variant="ghost" size="sm" asChild>
-          <Link href="/dashboard">Skip for now</Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/login">Sign in</Link>
+          </Button>
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/dashboard">Skip for now</Link>
+          </Button>
+        </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-4 pb-16 sm:px-6">

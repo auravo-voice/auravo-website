@@ -1,13 +1,11 @@
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getDb } from "@/db/client";
-import { practiceSession } from "@/db/schema";
+import { getServerPocketBase } from "@/lib/pocketbase/server";
+import { PB } from "@/db/collections";
 import { listSimulationTurns } from "@/db/queries/simulations";
-import { AURAVO_USER_ID_COOKIE } from "@/lib/auth/auravo-user-cookie";
+import { getAuthenticatedUserId } from "@/lib/auth/session";
 import {
   AUDIENCES,
   MEETING_TYPES,
@@ -35,34 +33,36 @@ export default async function MeetingPrepRehearsePage({
     redirect("/meeting-prep");
   }
 
-  const cookieStore = await cookies();
-  const userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value ?? "";
+  const userId = await getAuthenticatedUserId();
   if (!userId) {
-    return <MissingSessionCard reason="No active user. Start the rehearsal from the prep page." />;
+    redirect(`/login?redirect=${encodeURIComponent(`/meeting-prep/rehearse?session=${sessionId}`)}`);
   }
 
-  const db = getDb();
-  const rows = await db
-    .select({
-      userId: practiceSession.userId,
-      kind: practiceSession.kind,
-      title: practiceSession.title,
-      segmentsJson: practiceSession.segmentsJson,
-    })
-    .from(practiceSession)
-    .where(eq(practiceSession.id, sessionId))
-    .limit(1);
-  const row = rows[0];
-  if (!row || row.userId !== userId) {
-    return <MissingSessionCard reason="That rehearsal does not belong to your session." />;
+  const pb = await getServerPocketBase();
+  let row: {
+    user?: string;
+    kind?: string;
+    title?: string;
+    segments_json?: string;
+  };
+  try {
+    row = await pb.collection(PB.practiceSessions).getOne(sessionId);
+  } catch {
+    return <MissingSessionCard reason="That rehearsal could not be found." />;
   }
-  if (row.kind !== "meeting_rehearsal_draft" && row.kind !== "meeting_rehearsal") {
+
+  const ownerId = typeof row.user === "string" ? row.user : "";
+  if (!ownerId || ownerId !== userId) {
+    return <MissingSessionCard reason="That rehearsal does not belong to your account." />;
+  }
+  const kind = typeof row.kind === "string" ? row.kind : "";
+  if (kind !== "meeting_rehearsal_draft" && kind !== "meeting_rehearsal") {
     return <MissingSessionCard reason="That session is not a meeting rehearsal." />;
   }
 
   let manifest: Record<string, unknown> | null = null;
   try {
-    manifest = row.segmentsJson ? (JSON.parse(row.segmentsJson) as Record<string, unknown>) : null;
+    manifest = row.segments_json ? (JSON.parse(row.segments_json) as Record<string, unknown>) : null;
   } catch {
     manifest = null;
   }
@@ -99,13 +99,13 @@ export default async function MeetingPrepRehearsePage({
 
   const init: RehearsalInit = {
     sessionId,
-    title: row.title ?? "Meeting rehearsal",
+    title: typeof row.title === "string" ? row.title : "Meeting rehearsal",
     meetingLabel,
     audienceLabel,
     ctx,
     plan,
     opener: initialOpener,
-    alreadyFinalized: row.kind === "meeting_rehearsal",
+    alreadyFinalized: kind === "meeting_rehearsal",
     initialTurns,
   };
 

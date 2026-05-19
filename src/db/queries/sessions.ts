@@ -1,9 +1,11 @@
 import "server-only";
-import { and, desc, eq, inArray } from "drizzle-orm";
-import { getDb } from "@/db/client";
-import { practiceSession, sessionScores } from "@/db/schema";
 
-/** Anything that should count toward streaks/progress (filters out future placeholder kinds). */
+import { getServerPocketBase } from "@/lib/pocketbase/server";
+import { PB } from "@/db/collections";
+import { mapSessionScores } from "@/db/pocketbase-map";
+import { pbTs } from "@/db/pocketbase-map";
+import { pocketBaseFileUrl } from "@/lib/storage/audio-path";
+
 export const COUNTABLE_SESSION_KINDS = [
   "onboarding_assessment",
   "daily_practice",
@@ -29,7 +31,6 @@ export type SessionListRow = {
   } | null;
 };
 
-/** YYYY-MM-DD in the **local server timezone** so streaks line up with how the learner experiences "today". */
 export function toLocalDayKey(ts: number): string {
   const d = new Date(ts);
   const y = d.getFullYear();
@@ -46,7 +47,6 @@ function yesterdayKey(): string {
   return toLocalDayKey(Date.now() - 24 * 60 * 60 * 1000);
 }
 
-/** Counts consecutive day-buckets ending at today (or yesterday if no session today) where at least one session was saved. */
 function computeStreakDays(orderedTimestamps: number[]): number {
   if (orderedTimestamps.length === 0) return 0;
   const uniqueDays = new Set(orderedTimestamps.map(toLocalDayKey));
@@ -75,89 +75,70 @@ export type UserSessionStats = {
   hasBaseline: boolean;
 };
 
-/** Headline numbers for the dashboard header (streak + total sessions). */
-export async function getUserSessionStats(userId: string): Promise<UserSessionStats> {
-  const db = getDb();
-  const rows = await db
-    .select({ createdAt: practiceSession.createdAt, kind: practiceSession.kind })
-    .from(practiceSession)
-    .where(
-      and(
-        eq(practiceSession.userId, userId),
-        inArray(practiceSession.kind, COUNTABLE_SESSION_KINDS as unknown as string[]),
-      ),
-    )
-    .orderBy(desc(practiceSession.createdAt));
+function audioRefForRecord(record: { id: string; audio?: string }): string {
+  const file = typeof record.audio === "string" ? record.audio : "";
+  if (!file) return "";
+  return pocketBaseFileUrl(PB.practiceSessions, record.id, file);
+}
 
+export async function getUserSessionStats(userId: string): Promise<UserSessionStats> {
+  const pb = await getServerPocketBase();
+  const kinds = COUNTABLE_SESSION_KINDS.map((k) => `"${k}"`).join(" || kind = ");
+  const rows = await pb.collection(PB.practiceSessions).getFullList({
+    filter: `user = "${userId}" && (${kinds})`,
+    sort: "-created",
+  });
+  const timestamps = rows.map((r) => pbTs(r));
   const total = rows.length;
-  const streakDays = computeStreakDays(rows.map((r) => r.createdAt));
-  const latestAt = rows[0]?.createdAt ?? null;
+  const streakDays = computeStreakDays(timestamps);
+  const latestAt = timestamps[0] ?? null;
   const hasBaseline = rows.some((r) => r.kind === "onboarding_assessment");
   return { totalSessions: total, streakDays, latestAt, hasBaseline };
 }
 
-/** Recent practice sessions joined with scores — drives Progress timeline + Practice diff card. */
 export async function listUserSessions(
   userId: string,
   opts: { limit?: number; kinds?: readonly string[] } = {},
 ): Promise<SessionListRow[]> {
-  const db = getDb();
+  const pb = await getServerPocketBase();
   const limit = Math.max(1, Math.min(opts.limit ?? 30, 200));
   const kinds = opts.kinds ?? COUNTABLE_SESSION_KINDS;
+  const kindFilter = kinds.map((k) => `kind = "${k}"`).join(" || ");
+  const rows = await pb.collection(PB.practiceSessions).getList(1, limit, {
+    filter: `user = "${userId}" && (${kindFilter})`,
+    sort: "-created",
+  });
 
-  const rows = await db
-    .select({
-      id: practiceSession.id,
-      kind: practiceSession.kind,
-      title: practiceSession.title,
-      audioRelativePath: practiceSession.audioRelativePath,
-      durationMs: practiceSession.durationMs,
-      createdAt: practiceSession.createdAt,
-      pronunciation: sessionScores.pronunciation,
-      grammar: sessionScores.grammar,
-      fluency: sessionScores.fluency,
-      vocabulary: sessionScores.vocabulary,
-      fillerWords: sessionScores.fillerWords,
-      pacing: sessionScores.pacing,
-    })
-    .from(practiceSession)
-    .leftJoin(sessionScores, eq(sessionScores.sessionId, practiceSession.id))
-    .where(
-      and(
-        eq(practiceSession.userId, userId),
-        inArray(practiceSession.kind, kinds as unknown as string[]),
-      ),
-    )
-    .orderBy(desc(practiceSession.createdAt))
-    .limit(limit);
-
-  return rows.map((r) => ({
-    id: r.id,
-    kind: r.kind,
-    title: r.title,
-    audioRelativePath: r.audioRelativePath,
-    durationMs: r.durationMs,
-    createdAt: r.createdAt,
-    scores:
-      r.pronunciation != null &&
-      r.grammar != null &&
-      r.fluency != null &&
-      r.vocabulary != null &&
-      r.fillerWords != null &&
-      r.pacing != null
-        ? {
-            pronunciation: r.pronunciation,
-            grammar: r.grammar,
-            fluency: r.fluency,
-            vocabulary: r.vocabulary,
-            fillerWords: r.fillerWords,
-            pacing: r.pacing,
-          }
-        : null,
-  }));
+  const out: SessionListRow[] = [];
+  for (const r of rows.items) {
+    let scores: SessionListRow["scores"] = null;
+    try {
+      const s = await pb.collection(PB.sessionScores).getFirstListItem(`session = "${r.id}"`);
+      const mapped = mapSessionScores(s, r.id);
+      scores = {
+        pronunciation: mapped.pronunciation,
+        grammar: mapped.grammar,
+        fluency: mapped.fluency,
+        vocabulary: mapped.vocabulary,
+        fillerWords: mapped.fillerWords,
+        pacing: mapped.pacing,
+      };
+    } catch {
+      scores = null;
+    }
+    out.push({
+      id: r.id,
+      kind: String(r.kind),
+      title: typeof r.title === "string" ? r.title : null,
+      audioRelativePath: audioRefForRecord(r as { id: string; audio?: string }) || `tmp/${r.id}.webm`,
+      durationMs: typeof r.duration_ms === "number" ? r.duration_ms : null,
+      createdAt: pbTs(r),
+      scores,
+    });
+  }
+  return out;
 }
 
-/** Average score of all six dimensions for a single session (handy for the timeline summary). */
 export function sessionAverageScore(scores: NonNullable<SessionListRow["scores"]>): number {
   return Math.round(
     (scores.pronunciation +

@@ -1,14 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { getDb } from "@/db/client";
-import { practiceSession } from "@/db/schema";
+import { createPracticeSession } from "@/db/queries/practice-persist";
 import { ensureUserProfile } from "@/db/queries/user";
-import { insertSimulationTurnSync } from "@/db/queries/simulations";
-import {
-  AURAVO_USER_ID_COOKIE,
-  auravoUserIdCookieOptions,
-} from "@/lib/auth/auravo-user-cookie";
+import { insertSimulationTurn } from "@/db/queries/simulations";
 import {
   isAudienceId,
   isMeetingType,
@@ -17,6 +11,7 @@ import {
   type MeetingPlan,
   type MeetingRehearsalManifest,
 } from "@/lib/meeting-prep/types";
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,11 +29,10 @@ function looksLikePlan(v: unknown): v is MeetingPlan {
   );
 }
 
-/** Create a draft rehearsal session and seed it with the audience's opening cue (e.g. "Begin whenever ready"). */
 export async function POST(req: Request) {
-  const cookieStore = await cookies();
-  let userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value ?? "";
-  if (!userId) userId = randomUUID();
+  const auth = await requireApiUserId();
+  if (isAuthError(auth)) return auth;
+  const userId = auth;
 
   let body: unknown;
   try {
@@ -68,7 +62,6 @@ export async function POST(req: Request) {
   await ensureUserProfile(userId);
 
   const sessionId = randomUUID();
-  const now = Date.now();
 
   const manifest: MeetingRehearsalManifest = {
     kind: "meeting_rehearsal",
@@ -86,22 +79,14 @@ export async function POST(req: Request) {
       ? `Five-minute quick prep. Hit your opener first — 30 seconds, top of the meeting.`
       : `Whenever you are ready, deliver your opening as if the meeting just started. I'll interject when something needs probing.`;
 
-  const db = getDb();
-  db.transaction((tx) => {
-    tx.insert(practiceSession)
-      .values({
-        id: sessionId,
-        userId,
-        kind: "meeting_rehearsal_draft",
-        title: meetingType === "presentation" ? "Presentation rehearsal" : "Meeting rehearsal",
-        audioRelativePath: `uploads/${sessionId}.placeholder`,
-        durationMs: null,
-        createdAt: now,
-        segmentsJson: JSON.stringify(manifest),
-      })
-      .run();
+  await createPracticeSession({
+    id: sessionId,
+    userId,
+    kind: "meeting_rehearsal_draft",
+    title: meetingType === "presentation" ? "Presentation rehearsal" : "Meeting rehearsal",
+    segmentsJson: JSON.stringify(manifest),
   });
-  insertSimulationTurnSync({
+  await insertSimulationTurn({
     id: randomUUID(),
     sessionId,
     turnIndex: 0,
@@ -111,7 +96,7 @@ export async function POST(req: Request) {
     durationMs: null,
   });
 
-  const res = NextResponse.json({
+  return NextResponse.json({
     ok: true,
     userId,
     sessionId,
@@ -119,6 +104,4 @@ export async function POST(req: Request) {
     mode,
     durationMin,
   });
-  res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
-  return res;
 }

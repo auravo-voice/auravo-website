@@ -39,7 +39,13 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function AppChrome({ children }: { children: React.ReactNode }) {
+export function AppChrome({
+  children,
+  userDisplayName = "Learner",
+}: {
+  children: React.ReactNode;
+  userDisplayName?: string;
+}) {
   const [open, setOpen] = React.useState(false);
   return (
     <div className="flex min-h-dvh w-full bg-background">
@@ -67,7 +73,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3 rounded-2xl bg-muted/50 px-3 py-2">
             <div className="size-9 rounded-full bg-gradient-to-br from-primary to-accent" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">Demo learner</p>
+              <p className="truncate text-sm font-medium">{userDisplayName}</p>
               <p className="truncate text-xs text-muted-foreground">Voice coaching profile</p>
             </div>
             <ModeToggle />
@@ -91,9 +97,18 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
               </SheetHeader>
               <Separator className="my-4" />
               <NavLinks onNavigate={() => setOpen(false)} />
-              <div className="mt-auto flex items-center justify-between pt-6">
-                <span className="text-xs text-muted-foreground">Theme</span>
-                <ModeToggle />
+              <div className="mt-auto space-y-4 border-t border-border/80 pt-6">
+                <div className="flex items-center gap-3">
+                  <div className="size-9 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{userDisplayName}</p>
+                    <p className="truncate text-xs text-muted-foreground">Voice coaching profile</p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Theme</span>
+                  <ModeToggle />
+                </div>
               </div>
             </SheetContent>
           </Sheet>

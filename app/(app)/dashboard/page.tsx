@@ -12,6 +12,7 @@ import { getOnboardingGoalLabel, isOnboardingGoalId } from "@/lib/coach/dashboar
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import { getAuthenticatedUserId } from "@/lib/auth/session";
+import { getAuthUserDisplayName } from "@/lib/auth/user-display-name";
 import { AURAVO_PENDING_BASELINE_SESSION_COOKIE } from "@/lib/auth/auravo-user-cookie-constants";
 import { getBaselineBundleForPracticeSession, getOnboardingBaselineForUser, type BaselineBundle } from "@/db/queries/baseline";
 import { getUserSessionStats } from "@/db/queries/sessions";
@@ -92,9 +93,15 @@ function DashboardCoachFallback() {
   );
 }
 
-function DashboardEmptyState() {
+function DashboardEmptyState({ displayName }: { displayName: string }) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 py-4">
+      <header>
+        <p className="text-sm font-medium text-muted-foreground">Dashboard</p>
+        <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+          Good evening, {displayName}
+        </h1>
+      </header>
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">Complete your initial assessment</CardTitle>
@@ -157,7 +164,8 @@ async function DashboardCoachContent({
   }
 
   if (!baseline) {
-    return <DashboardEmptyState />;
+    const displayName = (await getAuthUserDisplayName()) ?? "Learner";
+    return <DashboardEmptyState displayName={displayName} />;
   }
 
   const needsHandoffCleanup =

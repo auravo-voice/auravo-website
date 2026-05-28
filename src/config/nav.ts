@@ -1,4 +1,5 @@
 import {
+  Activity,
   CalendarDays,
   ClipboardCheck,
   Home,
@@ -16,6 +17,7 @@ export const APP_NAV = [
   { href: "/learning-path", label: "Learning path", icon: Sparkles },
   { href: "/wordle", label: "Wordle", icon: Keyboard },
   { href: "/simulations", label: "Simulations", icon: MessageCircle },
+  { href: "/observability", label: "Observability", icon: Activity },
   { href: "/progress", label: "Progress journal", icon: LineChart },
   { href: "/meeting-prep", label: "Meeting prep", icon: CalendarDays },
   { href: "/settings", label: "Settings", icon: Settings2 },

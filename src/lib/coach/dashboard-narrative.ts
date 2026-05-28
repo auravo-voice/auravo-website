@@ -80,14 +80,18 @@ async function computeDashboardCoachingNarrative(input: DashboardNarrativeInput)
         },
       ],
       schema: narrativeSchema,
-      numPredict: 320,
+      numPredict: 256,
+      numCtx: 2_048,
+      temperature: 0.3,
+      // Cold 3b loads can exceed 10s; use the full coach timeout (see AURAVO_COACH_TIMEOUT_MS).
       timeoutMs: getCoachOllamaTimeoutMs(),
     });
     return { data, warning: null };
   } catch {
+    // Template copy is the designed offline path — do not alarm the user when it succeeds.
     return {
       data: templateNarrative({ ...input, goalLabel }),
-      warning: "Preparing your personalized coaching insights…",
+      warning: null,
     };
   }
 }
@@ -107,7 +111,8 @@ export const getDashboardCoachingNarrative = cache(async (input: DashboardNarrat
   const key = cacheKeyForNarrative(input);
   return unstable_cache(
     async () => computeDashboardCoachingNarrative(input),
-    ["dashboard-coaching-narrative", key],
-    { revalidate: 1800 },
+    // v2 busts old caches that stored the misleading "Preparing…" failure banner for 30 min
+    ["dashboard-coaching-narrative-v3", key],
+    { revalidate: 300 },
   )();
 });

@@ -1,8 +1,18 @@
 # PocketBase setup for Auravo Web
 
+## Storage mode (`AURAVO_STORAGE`)
+
+| Value | Data (sessions, scores, …) | Auth (Google / email) |
+|--------|---------------------------|------------------------|
+| `sqlite` (default) | Local `./data/auravo.sqlite` | PocketBase when `NEXT_PUBLIC_POCKETBASE_URL` is set |
+| `pocketbase` | PocketBase collections below | PocketBase (required) |
+
+Restart the dev server after changing `AURAVO_STORAGE`.
+
 ## Environment
 
 ```bash
+AURAVO_STORAGE=sqlite
 NEXT_PUBLIC_POCKETBASE_URL=https://pb.auravo.ai
 ```
 

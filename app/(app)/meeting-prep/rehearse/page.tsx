@@ -2,9 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { getServerPocketBase } from "@/lib/pocketbase/server";
-import { PB } from "@/db/collections";
-import { listSimulationTurns } from "@/db/queries/simulations";
+import { getSimulationSession, listSimulationTurns } from "@/db/queries/simulations";
 import { getAuthenticatedUserId } from "@/lib/auth/session";
 import {
   AUDIENCES,
@@ -38,31 +36,21 @@ export default async function MeetingPrepRehearsePage({
     redirect(`/login?redirect=${encodeURIComponent(`/meeting-prep/rehearse?session=${sessionId}`)}`);
   }
 
-  const pb = await getServerPocketBase();
-  let row: {
-    user?: string;
-    kind?: string;
-    title?: string;
-    segments_json?: string;
-  };
-  try {
-    row = await pb.collection(PB.practiceSessions).getOne(sessionId);
-  } catch {
+  const session = await getSimulationSession(sessionId);
+  if (!session) {
     return <MissingSessionCard reason="That rehearsal could not be found." />;
   }
-
-  const ownerId = typeof row.user === "string" ? row.user : "";
-  if (!ownerId || ownerId !== userId) {
+  if (session.userId !== userId) {
     return <MissingSessionCard reason="That rehearsal does not belong to your account." />;
   }
-  const kind = typeof row.kind === "string" ? row.kind : "";
+  const kind = session.kind;
   if (kind !== "meeting_rehearsal_draft" && kind !== "meeting_rehearsal") {
     return <MissingSessionCard reason="That session is not a meeting rehearsal." />;
   }
 
   let manifest: Record<string, unknown> | null = null;
   try {
-    manifest = row.segments_json ? (JSON.parse(row.segments_json) as Record<string, unknown>) : null;
+    manifest = session.segmentsJson ? (JSON.parse(session.segmentsJson) as Record<string, unknown>) : null;
   } catch {
     manifest = null;
   }
@@ -99,7 +87,7 @@ export default async function MeetingPrepRehearsePage({
 
   const init: RehearsalInit = {
     sessionId,
-    title: typeof row.title === "string" ? row.title : "Meeting rehearsal",
+    title: session.title ?? "Meeting rehearsal",
     meetingLabel,
     audienceLabel,
     ctx,

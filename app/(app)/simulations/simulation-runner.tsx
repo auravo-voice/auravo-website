@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { recordingValidationError, stopMediaRecorderAndBuildBlob } from "@/lib/audio/finish-recording";
 import {
   startMicLevelMonitor,
   type MicMonitorHandle,
@@ -193,20 +194,19 @@ export function SimulationRunner({ init }: { init: RunnerScenarioInit }) {
     setSubPhase("uploading");
     const end = Date.now();
     const durationMs = startedAtRef.current != null ? end - startedAtRef.current : 0;
-    await new Promise<void>((resolve) => {
-      mr.onstop = () => resolve();
-      mr.stop();
-    });
+    const blob = await stopMediaRecorderAndBuildBlob(mr, chunksRef.current);
     teardown();
     mrRef.current = null;
 
-    const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
-    if (blob.size < 32 || durationMs < MIN_TURN_MS) {
-      setError(
-        durationMs < MIN_TURN_MS
-          ? "That was very short. Try at least eight seconds so the AI has something to react to."
-          : "Recording was too quiet. Try again.",
-      );
+    const captureError = recordingValidationError(blob, durationMs, {
+      minDurationMs: MIN_TURN_MS,
+      shortDurationMessage:
+        "That was very short. Try at least eight seconds so the AI has something to react to.",
+      emptyCaptureMessage:
+        "No audio was captured. Check your microphone and input device, then try again.",
+    });
+    if (captureError) {
+      setError(captureError);
       setSubPhase("awaiting_user");
       return;
     }
@@ -320,7 +320,7 @@ export function SimulationRunner({ init }: { init: RunnerScenarioInit }) {
             <p className="font-medium text-foreground">Mic access</p>
             <p className="mt-1">
               You will record one turn at a time. We transcribe on the server and store turn audio in your
-              PocketBase account. Aim for roughly{" "}
+              your local profile. Aim for roughly{" "}
               {init.kind === "static" ? `${init.recommendedMinutes.min}–${init.recommendedMinutes.max} minutes` : "3–8 minutes"}{" "}
               of conversation.
             </p>

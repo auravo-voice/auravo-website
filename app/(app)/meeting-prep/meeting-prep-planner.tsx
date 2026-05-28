@@ -193,8 +193,12 @@ export function MeetingPrepPlanner() {
           disabled={loadingPlan || loadingStart != null}
           onClick={() => void quickPrep()}
         >
-          {loadingStart === "quick" ? <Loader2 className="size-4 animate-spin" /> : <Zap className="size-4" />}
-          Quick prep (5 min)
+          {loadingStart === "quick" ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Zap className="size-4" />
+          )}
+          {loadingStart === "quick" ? "Quick prep…" : "Quick prep (5 min)"}
         </Button>
       </header>
 
@@ -318,7 +322,7 @@ export function MeetingPrepPlanner() {
             >
               {loadingPlan ? (
                 <>
-                  <Loader2 className="size-4 animate-spin" /> Asking your coach…
+                  <Loader2 className="size-4 animate-spin" /> Generating plan (15–60s locally)…
                 </>
               ) : (
                 <>
@@ -346,8 +350,13 @@ export function MeetingPrepPlanner() {
               </p>
             )}
             {loadingPlan && !plan && (
-              <p className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" /> Drafting your plan…
+              <p className="text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Loader2 className="size-4 animate-spin" /> Drafting your plan with the local coach…
+                </span>
+                <span className="mt-1 block text-xs">
+                  First run after opening Ollama can take up to a minute on CPU; later plans are usually faster.
+                </span>
               </p>
             )}
             {plan && (

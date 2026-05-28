@@ -22,6 +22,7 @@ const FIELD_BY_DIM: Record<DimensionKey, keyof NonNullable<SessionListRow["score
 
 export type TimelineRow = {
   id: string;
+  kind: string;
   title: string;
   scenario: string;
   date: string;
@@ -207,6 +208,7 @@ export function buildProgressSnapshot(rows: SessionListRow[]): ProgressSnapshot 
     .filter((r) => r.scores != null)
     .map((r) => ({
       id: r.id,
+      kind: r.kind,
       title: r.title ?? scenarioLabelFromKind(r.kind),
       scenario: scenarioLabelFromKind(r.kind),
       date: toLocalDayKey(r.createdAt),

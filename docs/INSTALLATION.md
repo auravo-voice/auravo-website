@@ -11,7 +11,7 @@
 
 **Optional (full voice features on self-hosted API):**
 
-- Ollama + pulled model (e.g. `ollama pull qwen2.5:7b`)
+- Ollama + pulled model (e.g. `ollama pull qwen2.5:3b`)
 - Python 3.11–3.12, ffmpeg, faster-whisper (`npm run setup:transcription`)
 
 ---
@@ -41,7 +41,7 @@ NEXT_PUBLIC_APP_URL=https://app.auravo.ai
 
 # Ollama (server-side only)
 OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:7b
+OLLAMA_MODEL=qwen2.5:3b
 AURAVO_COACH_TIMEOUT_MS=180000
 
 # Transcription (self-hosted API only)
@@ -97,7 +97,7 @@ Without this, set `TRANSCRIPTION_PROVIDER=placeholder` or `AURAVO_ALLOW_PLACEHOL
 ### Ollama (optional)
 
 ```bash
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:3b
 ollama serve   # if not already running
 ```
 

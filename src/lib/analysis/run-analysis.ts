@@ -6,8 +6,8 @@ import { rm } from "node:fs/promises";
 
 import { getTempAudioRoot } from "@/lib/storage/temp-audio";
 import { resolveAudioAbsolutePath } from "@/lib/storage/audio-path";
-import { extractAcousticFeatures } from "@/lib/audio/acoustic";
-import { extractVadFeatures } from "@/lib/audio/vad";
+import { extractAcousticFeatures, type AcousticResult } from "@/lib/audio/acoustic";
+import { extractVadFeatures, type VadResult } from "@/lib/audio/vad";
 import {
   getTranscriptionAdapter,
   TranscriptionUnavailableError,
@@ -163,7 +163,7 @@ async function resolveAudio(input: RunAnalysisInput["audio"]): Promise<{
  * `CanonicalAnalysis` payload (scores + explanations + key metrics + recommended next exercises).
  *
  * Pipeline order matches the layered architecture in the spec:
- *   audio → transcription → VAD + openSMILE (parallel) → derive → score → recommend → coach summary.
+ *   audio → transcription ∥ VAD + openSMILE (parallel) → derive → score → recommend → coach summary.
  *
  * Failure model: if real transcription is required but unavailable (faster-whisper down without
  * placeholder fallback enabled), this throws a {@link TranscriptionUnavailableError}; routes catch
@@ -171,42 +171,46 @@ async function resolveAudio(input: RunAnalysisInput["audio"]): Promise<{
  */
 export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAnalysis> {
   const resolved = await resolveAudio(input.audio);
+  const baselinePromise = getOnboardingBaselineForUser(input.context.userId);
 
-  // Stage 1: transcription.
+  // Stages 1–2: Whisper and openSMILE/VAD only read the audio file — run them in parallel to cut wall-clock time.
   let transcription: TranscriptionResult;
   let adapterName: string;
+  let acoustic: AcousticResult;
+  let vad: VadResult;
+
   if (resolved) {
     const adapter = getTranscriptionAdapter();
     adapterName = adapter.name;
-    transcription = await adapter.transcribe(resolved.audioPath);
+    const cacheKey = resolved.featureCacheKey;
+    const [transcriptionResult, acousticResult, vadResult] = await Promise.all([
+      adapter.transcribe(resolved.audioPath),
+      extractAcousticFeatures(resolved.audioPath, { cacheKey }),
+      extractVadFeatures(resolved.audioPath, { cacheKey }),
+    ]);
+    transcription = transcriptionResult;
+    acoustic = acousticResult;
+    vad = vadResult;
   } else if (input.preTranscribed) {
     adapterName = input.preTranscribed.adapter ?? "pre-transcribed";
     transcription = {
       text: input.preTranscribed.text,
       durationSec: input.preTranscribed.durationSec ?? undefined,
     };
+    acoustic = { available: false, reason: "no_audio_input" };
+    vad = { available: false, reason: "no_audio_input" };
   } else {
     throw new Error("runAnalysis: neither audio nor preTranscribed input was provided");
   }
-  const transcriptText = transcription.text.trim();
 
-  // Stage 2 (parallel where possible): VAD + acoustic features. Skip both if we have no audio.
-  const cacheKey = resolved?.featureCacheKey ?? null;
-  const [acoustic, vad] = resolved
-    ? await Promise.all([
-        extractAcousticFeatures(resolved.audioPath, { cacheKey }),
-        extractVadFeatures(resolved.audioPath, { cacheKey }),
-      ])
-    : [
-        { available: false as const, reason: "no_audio_input" },
-        { available: false as const, reason: "no_audio_input" },
-      ];
   if (acoustic.available === false) {
     console.error("[runAnalysis] acoustic unavailable:", acoustic.reason);
   }
   if (vad.available === false) {
     console.error("[runAnalysis] vad unavailable:", vad.reason);
   }
+
+  const transcriptText = transcription.text.trim();
 
   // Stage 3: derive + score (deterministic; uses everything above).
   const audioDurationSec =
@@ -228,8 +232,8 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     : null;
   const conversationCoachNotes = conversation ? describeConversation(conversation) : [];
 
-  // Stage 5: exercise recommendation. Always week-plan-first; falls back to library.
-  const baseline = await getOnboardingBaselineForUser(input.context.userId);
+  // Stage 5: exercise recommendation. Baseline fetch started during audio pipeline above.
+  const baseline = await baselinePromise;
   const baselineScores: SixDimensionScores = baseline
     ? {
         pronunciation: baseline.scores.pronunciation,
@@ -252,40 +256,61 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     count: 3,
   });
 
-  // Stage 5b: exercise task review (Ollama + fallback) — only when the caller supplies exercise metadata.
-  let taskReview: ExerciseTaskReviewResult | null = null;
-  if (input.context.exerciseContext && input.context.runExerciseTaskReview !== false) {
-    taskReview = await generateExerciseTaskReview({
-      exercise: input.context.exerciseContext,
-      transcript: transcriptText,
-      voice,
-    });
-  }
+  const learnerContext = {
+    displayName: baseline?.user.displayName ?? input.context.learnerContextHint?.displayName ?? "Learner",
+    goalLabel: baseline?.user.onboardingGoalId ?? null,
+    streakDays: input.context.learnerContextHint?.streakDays,
+  };
 
-  // Stage 6: LLM coach summary (only if the caller wants it; the route owns whether to incur Ollama latency).
+  // Stages 5b + 6: daily practice runs two coach calls — run in parallel (task review has its own UI block).
+  let taskReview: ExerciseTaskReviewResult | null = null;
   let coachSummary: FinalCoachingSummary;
-  if (input.context.runCoachSummary === false) {
-    coachSummary = {
-      summary: "",
-      strengths: [],
-      improvementAreas: [],
-      recommendedExerciseIds: candidateExercises.map((c) => c.id),
-      recommendationRationale: "",
-      fallbackUsed: true,
-      warning: null,
-    };
+  const wantsTaskReview =
+    input.context.exerciseContext != null && input.context.runExerciseTaskReview !== false;
+  const wantsCoachSummary = input.context.runCoachSummary !== false;
+
+  if (wantsTaskReview && wantsCoachSummary && input.context.exerciseContext) {
+    const exercise = input.context.exerciseContext;
+    const [taskReviewResult, coachSummaryResult] = await Promise.all([
+      generateExerciseTaskReview({ exercise, transcript: transcriptText, voice }),
+      generateFinalCoachingSummary({
+        analysis: voice,
+        candidateExercises,
+        learnerContext,
+        exerciseContext: exercise,
+        taskReview: null,
+      }),
+    ]);
+    taskReview = taskReviewResult;
+    coachSummary = coachSummaryResult;
   } else {
-    coachSummary = await generateFinalCoachingSummary({
-      analysis: voice,
-      candidateExercises,
-      learnerContext: {
-        displayName: baseline?.user.displayName ?? input.context.learnerContextHint?.displayName ?? "Learner",
-        goalLabel: baseline?.user.onboardingGoalId ?? null,
-        streakDays: input.context.learnerContextHint?.streakDays,
-      },
-      exerciseContext: input.context.exerciseContext ?? null,
-      taskReview,
-    });
+    if (wantsTaskReview && input.context.exerciseContext) {
+      taskReview = await generateExerciseTaskReview({
+        exercise: input.context.exerciseContext,
+        transcript: transcriptText,
+        voice,
+      });
+    }
+    if (!wantsCoachSummary) {
+      coachSummary = {
+        summary: "",
+        strengths: [],
+        improvementAreas: [],
+        scoreExplanations: undefined,
+        recommendedExerciseIds: candidateExercises.map((c) => c.id),
+        recommendationRationale: "",
+        fallbackUsed: true,
+        warning: null,
+      };
+    } else {
+      coachSummary = await generateFinalCoachingSummary({
+        analysis: voice,
+        candidateExercises,
+        learnerContext,
+        exerciseContext: input.context.exerciseContext ?? null,
+        taskReview,
+      });
+    }
   }
 
   try {

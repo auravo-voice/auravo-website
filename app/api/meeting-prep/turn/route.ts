@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { eq } from "drizzle-orm";
+import { getDataDir, getDb } from "@/db/client";
+import { practiceSession } from "@/db/schema";
+import { AURAVO_USER_ID_COOKIE } from "@/lib/auth/auravo-user-cookie";
 import { isUuidLike } from "@/lib/util/is-uuid-like";
 import { getTranscriptionAdapter } from "@/lib/transcription";
 import {
   getSimulationSession,
-  insertSimulationTurn,
+  insertSimulationTurnSync,
   listSimulationTurns,
 } from "@/db/queries/simulations";
 import { generateRehearsalReply } from "@/lib/meeting-prep/turn-coach";
@@ -16,16 +23,20 @@ import {
   type MeetingPlan,
   type MeetingPrepContext,
 } from "@/lib/meeting-prep/types";
-import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
-import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Records one user turn during a meeting rehearsal and produces the AI audience's reaction (question / pushback /
+ * continue). Mirrors the simulations turn handler but uses the rehearsal persona built from the agenda + plan.
+ */
 export async function POST(req: Request) {
-  const auth = await requireApiUserId();
-  if (isAuthError(auth)) return auth;
-  const userId = auth;
+  const cookieStore = await cookies();
+  const userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value;
+  if (!userId) {
+    return NextResponse.json({ error: "No active session." }, { status: 401 });
+  }
 
   let form: FormData;
   try {
@@ -55,12 +66,17 @@ export async function POST(req: Request) {
     typeof durationRaw === "string" && durationRaw.trim() !== "" ? Number.parseInt(durationRaw, 10) : NaN;
 
   const turnAudioId = randomUUID();
+  const dataDir = getDataDir();
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(uploadsDir, { recursive: true });
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-  const { absolutePath, relativePath } = await writeTempAudioFile(
-    `${sessionId}.turn-${turnAudioId}`,
-    audio,
-    ext,
-  );
+  const relativePath = path
+    .join("uploads", `${sessionId}.turn-${turnAudioId}.${ext}`)
+    .split(path.sep)
+    .join("/");
+  const absolutePath = path.join(dataDir, relativePath);
+  const buf = Buffer.from(await audio.arrayBuffer());
+  await fs.writeFile(absolutePath, buf);
 
   let userText = "";
   try {
@@ -76,19 +92,35 @@ export async function POST(req: Request) {
 
   const existing = await listSimulationTurns(sessionId);
   const nextIndex = existing.length;
-  await insertSimulationTurn({
+  insertSimulationTurnSync({
+    id: randomUUID(),
     sessionId,
     turnIndex: nextIndex,
     role: "user",
     text: userText,
     audioRelativePath: relativePath,
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
-    audioFile: audio,
   });
 
+  // Refresh audio_relative_path on the first user turn so legacy joins have something useful.
+  if (nextIndex <= 1) {
+    const db = getDb();
+    db.update(practiceSession)
+      .set({ audioRelativePath: relativePath })
+      .where(eq(practiceSession.id, sessionId))
+      .run();
+  }
+
+  // Pull the rehearsal manifest stored at /start time.
+  const db = getDb();
+  const rows = await db
+    .select({ segmentsJson: practiceSession.segmentsJson })
+    .from(practiceSession)
+    .where(eq(practiceSession.id, sessionId))
+    .limit(1);
   let manifest: Record<string, unknown> | null = null;
   try {
-    manifest = session.segmentsJson ? (JSON.parse(session.segmentsJson) as Record<string, unknown>) : null;
+    manifest = rows[0]?.segmentsJson ? (JSON.parse(rows[0].segmentsJson) as Record<string, unknown>) : null;
   } catch {
     manifest = null;
   }
@@ -117,6 +149,7 @@ export async function POST(req: Request) {
   };
   const plan = manifest.plan as MeetingPlan;
 
+  // Skip the opening assistant cue when building chat history so it doesn't bias replies.
   const history = existing
     .filter((t) => !(t.turnIndex === 0 && t.role === "assistant"))
     .map((t) => ({ role: t.role, text: t.text }));
@@ -129,7 +162,8 @@ export async function POST(req: Request) {
     turnIndex: nextIndex,
   });
 
-  await insertSimulationTurn({
+  insertSimulationTurnSync({
+    id: randomUUID(),
     sessionId,
     turnIndex: nextIndex + 1,
     role: "assistant",

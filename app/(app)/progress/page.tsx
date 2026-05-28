@@ -200,6 +200,11 @@ async function ProgressContent() {
                     {row.date} · {row.durationSec === 0 ? "duration unknown" : `${(row.durationSec / 60).toFixed(1)} min`} · score {row.score}
                   </p>
                 </div>
+                {row.kind === "onboarding_assessment" ? (
+                  <Button variant="outline" size="sm" className="shrink-0" asChild>
+                    <Link href={`/assessment/results?session=${encodeURIComponent(row.id)}`}>View results</Link>
+                  </Button>
+                ) : null}
               </div>
             ))}
           </CardContent>

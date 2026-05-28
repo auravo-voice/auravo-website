@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
 import { DIMENSION_LABELS } from "@/lib/assessment/dimensions-from-scores";
 import type { VoiceAnalysis } from "@/lib/analysis/scoring";
+import { coachFailureWarning } from "@/lib/coach/coach-serve-result";
 import { ollamaChatStructured } from "@/lib/ollama/chat-json";
 import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
 import {
@@ -12,13 +13,38 @@ import {
 } from "@/lib/practice/recommend";
 import type { ExerciseContextForTaskReview, ExerciseTaskReviewResult } from "@/lib/coach/exercise-task-review-core";
 
+/** Trim overlong LLM strings instead of failing schema validation (small models often overrun limits). */
+function clampToMax(s: string, max: number): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  if (max <= 3) return t.slice(0, max);
+  return `${t.slice(0, max - 3)}...`;
+}
+
+function boundedString(min: number, max: number) {
+  return z
+    .string()
+    .transform((s) => clampToMax(s, max))
+    .pipe(z.string().min(min).max(max));
+}
+
 const finalSummarySchema = z.object({
-  summary: z.string().min(20).max(700),
-  strengths: z.array(z.string().min(3).max(140)).min(1).max(4),
-  improvementAreas: z.array(z.string().min(3).max(140)).min(1).max(4),
-  scoreExplanations: z.record(z.string(), z.string().min(8).max(280)).optional(),
+  summary: boundedString(20, 700),
+  strengths: z.array(boundedString(3, 140)).min(1).max(4),
+  improvementAreas: z.array(boundedString(3, 140)).min(1).max(4),
+  scoreExplanations: z
+    .record(z.string(), boundedString(8, 280))
+    .optional()
+    .transform((rec) => {
+      if (!rec) return rec;
+      const out: Record<string, string> = {};
+      for (const [k, v] of Object.entries(rec)) {
+        out[k] = clampToMax(v, 280);
+      }
+      return out;
+    }),
   recommendedExerciseIds: z.array(z.string().min(1).max(80)).min(1).max(4),
-  recommendationRationale: z.string().min(10).max(420),
+  recommendationRationale: boundedString(10, 420),
 });
 
 export type FinalCoachingSummary = z.infer<typeof finalSummarySchema> & {
@@ -28,6 +54,79 @@ export type FinalCoachingSummary = z.infer<typeof finalSummarySchema> & {
   warning: string | null;
 };
 
+type FinalSummaryPayload = z.infer<typeof finalSummarySchema>;
+
+function asSummaryString(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (Array.isArray(v)) return v.map(asSummaryString).filter(Boolean).join(" ").trim();
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.text === "string") return o.text.trim();
+    if (typeof o.content === "string") return o.content.trim();
+  }
+  return "";
+}
+
+function asSummaryStringList(v: unknown, minLen = 3): string[] {
+  if (typeof v === "string") {
+    const s = v.trim();
+    return s.length >= minLen ? [s] : [];
+  }
+  if (!Array.isArray(v)) return [];
+  return v
+    .flatMap((item) => {
+      const s = asSummaryString(item);
+      return s.length >= minLen ? [s] : [];
+    })
+    .slice(0, 4);
+}
+
+function unwrapSummaryRoot(parsed: unknown): Record<string, unknown> {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  let o = { ...(parsed as Record<string, unknown>) };
+  for (const key of ["summary", "coachSummary", "coach_summary", "result", "data"]) {
+    const inner = o[key];
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+      o = { ...o, ...(inner as Record<string, unknown>) };
+    }
+  }
+  return o;
+}
+
+/** Merge partial Qwen JSON with deterministic fallback so finalize always succeeds. */
+export function normalizeFinalSummaryJson(parsed: unknown, fallback: FinalSummaryPayload): FinalSummaryPayload {
+  const o = unwrapSummaryRoot(parsed);
+  const summary = asSummaryString(o.summary);
+  const strengths = asSummaryStringList(o.strengths);
+  const improvementAreas = asSummaryStringList(
+    o.improvementAreas ?? o.improvement_areas ?? o.improvements,
+  );
+  const recommendationRationale = asSummaryString(
+    o.recommendationRationale ?? o.recommendation_rationale ?? o.rationale,
+  );
+  const rawIds = o.recommendedExerciseIds ?? o.recommended_exercise_ids ?? o.exerciseIds;
+  const recommendedExerciseIds = Array.isArray(rawIds)
+    ? rawIds.flatMap((id) => (typeof id === "string" && id.trim() ? [id.trim()] : []))
+    : [];
+  const scoreExplanations =
+    o.scoreExplanations && typeof o.scoreExplanations === "object" && !Array.isArray(o.scoreExplanations)
+      ? (o.scoreExplanations as Record<string, string>)
+      : o.score_explanations && typeof o.score_explanations === "object" && !Array.isArray(o.score_explanations)
+        ? (o.score_explanations as Record<string, string>)
+        : fallback.scoreExplanations;
+
+  return finalSummarySchema.parse({
+    summary: summary.length >= 20 ? summary : fallback.summary,
+    strengths: strengths.length > 0 ? strengths : fallback.strengths,
+    improvementAreas: improvementAreas.length > 0 ? improvementAreas : fallback.improvementAreas,
+    scoreExplanations,
+    recommendedExerciseIds:
+      recommendedExerciseIds.length > 0 ? recommendedExerciseIds : fallback.recommendedExerciseIds,
+    recommendationRationale:
+      recommendationRationale.length >= 10 ? recommendationRationale : fallback.recommendationRationale,
+  });
+}
+
 const SYSTEM_BASE = `You are Auravo's senior speaking coach summarising one recording.
 
 Output a single JSON object (no markdown, no commentary). Fields and rules:
@@ -36,14 +135,16 @@ Output a single JSON object (no markdown, no commentary). Fields and rules:
   improvementAreas: 1–3 specific gaps. When exerciseTaskReview exists, include at least one task- or prompt-related gap when the review flags one; otherwise stay with delivery gaps. No platitudes.
   scoreExplanations: { dimensionKey: short sentence } — restate the explanation in coach voice. Optional.
   recommendedExerciseIds: 2–3 ids COPIED EXACTLY from the provided "candidateExercises" pool. NEVER invent ids.
-  recommendationRationale: one short paragraph explaining why those exercises target this learner's gaps.
+  recommendationRationale: one short paragraph (at most 420 characters) explaining why those exercises target this learner's gaps.
 
 Hard rules:
+- Respect character limits: summary <= 700; each strengths/improvementAreas item <= 140; recommendationRationale <= 420; each scoreExplanations value <= 280.
 - Never produce a recommendedExerciseId that is not in the candidate pool.
 - Never invent new exercise names. Refer to them by their title only.
 - Never invent or recompute dimension scores, WPM, pause counts, or filler counts — those are precomputed.
 - Never invent a taskFitScore; if you mention task fit, only paraphrase the provided exerciseTaskReview.taskFitScore.
 - If pronunciation is "approximate", say so plainly.
+- Return JSON only with ALL keys: summary, strengths (array), improvementAreas (array), recommendedExerciseIds (array), recommendationRationale, optional scoreExplanations (object).
 `;
 
 function buildFallback(
@@ -167,7 +268,10 @@ export async function generateFinalCoachingSummary(
         },
       ],
       schema: finalSummarySchema,
-      numPredict: 700,
+      normalize: (parsed) => normalizeFinalSummaryJson(parsed, fallback),
+      numPredict: 900,
+      numCtx: 4_096,
+      temperature: 0.25,
       timeoutMs: getCoachOllamaTimeoutMs(),
     });
 
@@ -193,7 +297,7 @@ export async function generateFinalCoachingSummary(
     return {
       ...fallback,
       fallbackUsed: true,
-      warning: "Coach narrative used a deterministic fallback — open Ollama locally to enable richer copy.",
+      warning: `Coach narrative used a deterministic fallback. ${coachFailureWarning(e)}`,
     };
   }
 }

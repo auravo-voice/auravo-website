@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { SkillRadar } from "@/components/skill-radar";
 import type { RadarDimension } from "@/lib/coach/schemas";
-import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
+import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
 import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
 import {
   ASSESSMENT_DIMENSION_LABEL,
@@ -19,24 +19,7 @@ import {
   firstTrainingFocusLine,
 } from "@/lib/assessment/assessment-results-ui";
 
-export type AssessmentBaselinePayload = {
-  userId: string;
-  sessionId: string;
-  transcript: string;
-  dimensions: RadarDimension[];
-  averageScore: number;
-  goalLabel: string | null;
-  analysis: BaselineAnalysis;
-  voiceExplanations?: Partial<Record<DimensionKey, string>>;
-  coachSummary?: {
-    summary: string;
-    strengths: string[];
-    improvementAreas: string[];
-    recommendationRationale?: string;
-  };
-  recommendedExercises?: { id: string; title: string; subtitle: string }[];
-  degraded?: boolean;
-};
+export type { AssessmentBaselinePayload };
 
 function displayLabelForDimension(d: RadarDimension): string {
   return ASSESSMENT_DIMENSION_LABEL[d.key as DimensionKey] ?? d.label;

@@ -1,23 +1,22 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
-import {
-  createOnboardingBaseline,
-  createPracticeSession,
-  createSessionScores,
-  createSessionTranscript,
-} from "@/db/queries/practice-persist";
+import { cookies } from "next/headers";
+import { getDataDir, getDb } from "@/db/client";
+import { onboardingBaseline, practiceSession, sessionScores, sessionTranscript } from "@/db/schema";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import { getOnboardingGoalLabel, isOnboardingGoalId } from "@/lib/coach/dashboard";
 import { ensureUserProfile } from "@/db/queries/user";
 import {
   AURAVO_PENDING_BASELINE_SESSION_COOKIE,
+  AURAVO_USER_ID_COOKIE,
   auravoPendingBaselineSessionCookieOptions,
+  auravoUserIdCookieOptions,
 } from "@/lib/auth/auravo-user-cookie";
 import { writeBaselineHandoffToken } from "@/lib/assessment/baseline-handoff-disk";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
-import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
-import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,9 +26,11 @@ export const dynamic = "force-dynamic";
  * {@link runAnalysis} so persisted `analysis_json` matches `assessment/draft/finalize` and the dashboard.
  */
 export async function POST(req: Request) {
-  const auth = await requireApiUserId();
-  if (isAuthError(auth)) return auth;
-  const userId = auth;
+  const cookieStore = await cookies();
+  let userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value;
+  if (!userId) {
+    userId = randomUUID();
+  }
 
   let form: FormData;
   try {
@@ -55,9 +56,16 @@ export async function POST(req: Request) {
 
   await ensureUserProfile(userId, goalId != null ? { onboardingGoalId: goalId } : {});
 
-  const tempKey = randomUUID();
+  const sessionId = randomUUID();
+  const dataDir = getDataDir();
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(uploadsDir, { recursive: true });
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-  const { absolutePath } = await writeTempAudioFile(tempKey, audio, ext);
+  const relativePath = path.join("uploads", `${sessionId}.${ext}`).split(path.sep).join("/");
+  const absolutePath = path.join(dataDir, relativePath);
+
+  const buf = Buffer.from(await audio.arrayBuffer());
+  await fs.writeFile(absolutePath, buf);
 
   let canonical;
   try {
@@ -86,34 +94,59 @@ export async function POST(req: Request) {
     );
   }
 
-  const sessionId = await createPracticeSession({
-    userId,
-    kind: "onboarding_assessment",
-    title: "Initial assessment",
-    durationMs: Number.isFinite(durationMs) ? durationMs : null,
-    audioFile: audio,
+  const now = Date.now();
+  const transcriptId = randomUUID();
+  const scoresId = randomUUID();
+
+  const db = getDb();
+  db.transaction((tx) => {
+    tx.insert(practiceSession)
+      .values({
+        id: sessionId,
+        userId,
+        kind: "onboarding_assessment",
+        title: "Initial assessment",
+        audioRelativePath: relativePath,
+        durationMs: Number.isFinite(durationMs) ? durationMs : null,
+        createdAt: now,
+      })
+      .run();
+    tx.insert(sessionTranscript)
+      .values({
+        id: transcriptId,
+        sessionId,
+        text: canonical.transcript,
+        adapter: canonical.adapter,
+        analysisJson: serializeAnalysisForPersistence(canonical),
+        createdAt: now,
+      })
+      .run();
+    tx.insert(sessionScores)
+      .values({
+        id: scoresId,
+        sessionId,
+        pronunciation: canonical.scores.pronunciation,
+        grammar: canonical.scores.grammar,
+        fluency: canonical.scores.fluency,
+        vocabulary: canonical.scores.vocabulary,
+        fillerWords: canonical.scores.filler_words,
+        pacing: canonical.scores.pacing,
+        createdAt: now,
+      })
+      .run();
+    tx.insert(onboardingBaseline)
+      .values({ userId, sessionId, createdAt: now })
+      .onConflictDoUpdate({
+        target: onboardingBaseline.userId,
+        set: { sessionId, createdAt: now },
+      })
+      .run();
   });
-  await createSessionTranscript({
-    sessionId,
-    text: canonical.transcript,
-    adapter: canonical.adapter,
-    analysisJson: serializeAnalysisForPersistence(canonical),
-  });
-  await createSessionScores({
-    sessionId,
-    pronunciation: canonical.scores.pronunciation,
-    grammar: canonical.scores.grammar,
-    fluency: canonical.scores.fluency,
-    vocabulary: canonical.scores.vocabulary,
-    fillerWords: canonical.scores.filler_words,
-    pacing: canonical.scores.pacing,
-  });
-  await createOnboardingBaseline(userId, sessionId);
 
   try {
-    await writeBaselineHandoffToken(sessionId, userId);
+    writeBaselineHandoffToken(sessionId, userId);
   } catch {
-    /* handoff is best-effort */
+    /* disk handoff is best-effort; SQLite row is still the source of truth */
   }
 
   const dimensions = scoresToRadarDimensions(canonical.scores);
@@ -140,6 +173,7 @@ export async function POST(req: Request) {
     coachSummary: canonical.coachSummary,
     recommendedExercises: canonical.candidateExercises,
   });
+  res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
   res.cookies.set(AURAVO_PENDING_BASELINE_SESSION_COOKIE, sessionId, auravoPendingBaselineSessionCookieOptions());
   return res;
 }

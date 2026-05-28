@@ -1,12 +1,17 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
-import { createPracticeSession } from "@/db/queries/practice-persist";
+import { cookies } from "next/headers";
+import { getDb } from "@/db/client";
+import { practiceSession } from "@/db/schema";
 import { ensureUserProfile } from "@/db/queries/user";
-import { insertSimulationTurn } from "@/db/queries/simulations";
+import { insertSimulationTurnSync } from "@/db/queries/simulations";
 import { getScenarioById, isDifficulty } from "@/lib/simulations/library";
 import { generateCustomScenario } from "@/lib/simulations/turn-coach";
+import {
+  AURAVO_USER_ID_COOKIE,
+  auravoUserIdCookieOptions,
+} from "@/lib/auth/auravo-user-cookie";
 import { describeSimulationHeader } from "@/lib/simulations/persona";
-import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
-import { pocketBaseErrorMessage } from "@/lib/pocketbase/errors";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,9 +25,9 @@ export const dynamic = "force-dynamic";
  *  - Custom scenario:  { custom: { title, description, personaName, personaSummary, opener, topics }, difficulty }
  */
 export async function POST(req: Request) {
-  const auth = await requireApiUserId();
-  if (isAuthError(auth)) return auth;
-  const userId = auth;
+  const cookieStore = await cookies();
+  let userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value ?? "";
+  if (!userId) userId = randomUUID();
 
   let body: unknown = {};
   try {
@@ -42,6 +47,8 @@ export async function POST(req: Request) {
   let scenarioTitle = "";
   let openerText = "";
   let scenarioId = "";
+  // `segments_json` carries the runtime persona — static scenarios resolve via library, custom carry their persona
+  // verbatim so /api/simulations/turn does not need a side cache.
   let manifest: Record<string, unknown>;
 
   if (typeof obj.scenarioId === "string" && obj.scenarioId.trim() !== "") {
@@ -73,6 +80,7 @@ export async function POST(req: Request) {
       custom: { title, description, personaName, personaSummary, opener, topics: topicsArr },
     };
   } else if (typeof obj.customDescription === "string" && obj.customDescription.trim() !== "") {
+    // Convenience: server-side LLM expansion when only a description was provided.
     const { scenario: gen } = await generateCustomScenario({ description: obj.customDescription });
     scenarioId = "custom";
     scenarioTitle = gen.title;
@@ -82,28 +90,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Missing scenarioId or custom payload." }, { status: 400 });
   }
 
-  let sessionId: string;
-  try {
-    sessionId = await createPracticeSession({
-      userId,
-      kind: "simulation_draft",
-      title: scenarioTitle,
-      segmentsJson: JSON.stringify(manifest),
-    });
-    await insertSimulationTurn({
-      sessionId,
-      turnIndex: 0,
-      role: "assistant",
-      text: openerText,
-      audioRelativePath: null,
-      durationMs: null,
-    });
-  } catch (e) {
-    console.error("[simulations/start]", e);
-    return NextResponse.json({ error: pocketBaseErrorMessage(e) }, { status: 400 });
-  }
+  const sessionId = randomUUID();
+  const now = Date.now();
+  const db = getDb();
+  db.transaction((tx) => {
+    tx.insert(practiceSession)
+      .values({
+        id: sessionId,
+        userId,
+        // Draft kind ensures it does not count toward streak/timeline until finalize.
+        kind: "simulation_draft",
+        title: scenarioTitle,
+        // Placeholder audio path until first user turn fills it in; cannot be null per schema.
+        audioRelativePath: `uploads/${sessionId}.placeholder`,
+        durationMs: null,
+        createdAt: now,
+        segmentsJson: JSON.stringify(manifest),
+      })
+      .run();
+  });
+  insertSimulationTurnSync({
+    id: randomUUID(),
+    sessionId,
+    turnIndex: 0,
+    role: "assistant",
+    text: openerText,
+    audioRelativePath: null,
+    durationMs: null,
+  });
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     ok: true,
     userId,
     sessionId,
@@ -113,4 +129,6 @@ export async function POST(req: Request) {
     header: scenarioId === "custom" ? scenarioTitle : describeSimulationHeader(getScenarioById(scenarioId)!, difficulty),
     openerText,
   });
+  res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
+  return res;
 }

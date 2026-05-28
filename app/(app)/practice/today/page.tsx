@@ -2,9 +2,8 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { Mic } from "lucide-react";
 import { getLocalUserId } from "@/lib/auth/local-user-id";
-import { ensureUserProfile } from "@/db/queries/user";
 import { getOnboardingBaselineForUser } from "@/db/queries/baseline";
-import { listUserSessions } from "@/db/queries/sessions";
+import { getLatestSessionWithScores } from "@/db/queries/sessions";
 import { isOnboardingGoalId } from "@/lib/coach/dashboard";
 import { buildWeekPlan, todaysExercises } from "@/lib/practice/week-plan";
 import { CATEGORY_LABELS } from "@/lib/practice/exercises";
@@ -55,8 +54,10 @@ async function PracticeTodayContent() {
   const userId = await getLocalUserId();
   if (!userId) return <NoBaselineState />;
 
-  await ensureUserProfile(userId);
-  const baseline = await getOnboardingBaselineForUser(userId);
+  const [baseline, recent] = await Promise.all([
+    getOnboardingBaselineForUser(userId),
+    getLatestSessionWithScores(userId, ["onboarding_assessment", "daily_practice"]),
+  ]);
   if (!baseline) return <NoBaselineState />;
 
   const scores: SixDimensionScores = {
@@ -68,19 +69,14 @@ async function PracticeTodayContent() {
     pacing: baseline.scores.pacing,
   };
 
-  // Use latest scored session for baseline-comparison so practitioners see improvement vs their *recent* level too.
-  const recent = await listUserSessions(userId, {
-    limit: 1,
-    kinds: ["onboarding_assessment", "daily_practice"],
-  });
-  const baselineAverage = recent[0]?.scores
+  const baselineAverage = recent?.scores
     ? Math.round(
-        (recent[0].scores.pronunciation +
-          recent[0].scores.grammar +
-          recent[0].scores.fluency +
-          recent[0].scores.vocabulary +
-          recent[0].scores.fillerWords +
-          recent[0].scores.pacing) /
+        (recent.scores.pronunciation +
+          recent.scores.grammar +
+          recent.scores.fluency +
+          recent.scores.vocabulary +
+          recent.scores.fillerWords +
+          recent.scores.pacing) /
           6,
       )
     : avgScore(scores);

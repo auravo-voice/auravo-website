@@ -31,8 +31,24 @@ export async function ollamaChatStructured<T>(options: {
   numPredict?: number;
   /** Abort the HTTP request after this many milliseconds (default 3 minutes). */
   timeoutMs?: number;
+  temperature?: number;
+  /** Cap context window so long prompts spend less time in prefill (e.g. 2048). */
+  numCtx?: number;
+  /** Keep model loaded between coach calls (Ollama duration string, e.g. "10m"). */
+  keepAlive?: string;
+  /** Fix common LLM JSON shape mistakes before Zod validation. */
+  normalize?: (parsed: unknown) => unknown;
 }): Promise<T> {
-  const { messages, schema, numPredict = 4096, timeoutMs = 180_000 } = options;
+  const {
+    messages,
+    schema,
+    numPredict = 4096,
+    timeoutMs = 180_000,
+    temperature = 0.35,
+    numCtx,
+    keepAlive = "10m",
+    normalize,
+  } = options;
   const url = `${getOllamaBaseUrl()}/api/chat`;
   let res: Response;
   try {
@@ -44,7 +60,12 @@ export async function ollamaChatStructured<T>(options: {
         messages,
         stream: false,
         format: "json",
-        options: { temperature: 0.35, num_predict: numPredict },
+        keep_alive: keepAlive,
+        options: {
+          temperature,
+          num_predict: numPredict,
+          ...(numCtx != null ? { num_ctx: numCtx } : {}),
+        },
       }),
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
@@ -55,12 +76,12 @@ export async function ollamaChatStructured<T>(options: {
     if (timedOut) {
       const sec = Math.round(timeoutMs / 1000);
       throw new OllamaCoachError(
-        `The local coach did not finish within ${sec}s (AbortSignal.timeout). Increase AURAVO_COACH_TIMEOUT_MS in .env.local or use a smaller/faster model (e.g. qwen2.5:3b instead of 7b).`,
+        `The local coach did not finish within ${sec}s (AbortSignal.timeout). Increase AURAVO_COACH_TIMEOUT_MS in .env.local or confirm Ollama is running with ${getOllamaModel()}.`,
         e,
       );
     }
     throw new OllamaCoachError(
-      "Could not reach the local coach runtime. Start Ollama locally and install a model (for example: ollama pull qwen2.5:7b).",
+      `Could not reach the local coach runtime. Start Ollama and install the configured model (e.g. ollama pull ${getOllamaModel()}).`,
       e,
     );
   }
@@ -81,6 +102,10 @@ export async function ollamaChatStructured<T>(options: {
     parsed = JSON.parse(extractJsonBlock(raw));
   } catch (e) {
     throw new OllamaCoachError("The model did not return valid JSON.", e);
+  }
+
+  if (normalize) {
+    parsed = normalize(parsed);
   }
 
   const out = schema.safeParse(parsed);

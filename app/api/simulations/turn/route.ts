@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { getDataDir, getDb } from "@/db/client";
+import { practiceSession } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { AURAVO_USER_ID_COOKIE } from "@/lib/auth/auravo-user-cookie";
 import { isUuidLike } from "@/lib/util/is-uuid-like";
 import { getTranscriptionAdapter } from "@/lib/transcription";
 import {
   getSimulationSession,
-  insertSimulationTurn,
+  insertSimulationTurnSync,
   listSimulationTurns,
 } from "@/db/queries/simulations";
 import {
@@ -17,12 +24,11 @@ import {
   type Difficulty,
   type Scenario,
 } from "@/lib/simulations/library";
-import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
-import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/** Resolve the persona to drive `generateSimulationReply` for both static and custom scenarios. */
 function resolvePersonaContext(
   segmentsJson: string | null,
 ): { scenario: Scenario; difficulty: Difficulty } | { error: string } {
@@ -68,10 +74,17 @@ function resolvePersonaContext(
   return { scenario, difficulty };
 }
 
+/**
+ * Records one user turn and produces the AI's reply turn. Uploads user audio, transcribes, persists the user turn,
+ * calls Ollama for the assistant reply, persists the assistant turn, and returns both. Either turn failing leaves
+ * the session in a re-tryable state — no partial transcript is written without an audio file backing it.
+ */
 export async function POST(req: Request) {
-  const auth = await requireApiUserId();
-  if (isAuthError(auth)) return auth;
-  const userId = auth;
+  const cookieStore = await cookies();
+  const userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value;
+  if (!userId) {
+    return NextResponse.json({ error: "No active session." }, { status: 401 });
+  }
 
   let form: FormData;
   try {
@@ -100,14 +113,21 @@ export async function POST(req: Request) {
   const durationMs =
     typeof durationRaw === "string" && durationRaw.trim() !== "" ? Number.parseInt(durationRaw, 10) : NaN;
 
+  // Save user audio to disk.
   const turnAudioId = randomUUID();
+  const dataDir = getDataDir();
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(uploadsDir, { recursive: true });
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-  const { absolutePath, relativePath } = await writeTempAudioFile(
-    `${sessionId}.turn-${turnAudioId}`,
-    audio,
-    ext,
-  );
+  const relativePath = path
+    .join("uploads", `${sessionId}.turn-${turnAudioId}.${ext}`)
+    .split(path.sep)
+    .join("/");
+  const absolutePath = path.join(dataDir, relativePath);
+  const buf = Buffer.from(await audio.arrayBuffer());
+  await fs.writeFile(absolutePath, buf);
 
+  // Transcribe user turn.
   let userText = "";
   try {
     const adapter = getTranscriptionAdapter();
@@ -120,19 +140,37 @@ export async function POST(req: Request) {
     userText = "(unclear audio — could not transcribe)";
   }
 
+  // Find next turn index.
   const existing = await listSimulationTurns(sessionId);
   const nextIndex = existing.length;
-  await insertSimulationTurn({
+  insertSimulationTurnSync({
+    id: randomUUID(),
     sessionId,
     turnIndex: nextIndex,
     role: "user",
     text: userText,
     audioRelativePath: relativePath,
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
-    audioFile: audio,
   });
 
-  const personaResolution = resolvePersonaContext(session.segmentsJson);
+  // Refresh audio_relative_path on the parent session if it was still a placeholder — useful for legacy joins
+  // that rely on practice_session.audio_relative_path even though the manifest now lives in segments_json.
+  if (nextIndex === 0 || nextIndex === 1) {
+    const db = getDb();
+    db.update(practiceSession)
+      .set({ audioRelativePath: relativePath })
+      .where(eq(practiceSession.id, sessionId))
+      .run();
+  }
+
+  // Read the persona manifest stored on the session row (set during /start) and build chat history.
+  const db = getDb();
+  const sessRows = await db
+    .select({ segmentsJson: practiceSession.segmentsJson })
+    .from(practiceSession)
+    .where(eq(practiceSession.id, sessionId))
+    .limit(1);
+  const personaResolution = resolvePersonaContext(sessRows[0]?.segmentsJson ?? null);
   if ("error" in personaResolution) {
     return NextResponse.json({ error: personaResolution.error }, { status: 500 });
   }
@@ -145,7 +183,8 @@ export async function POST(req: Request) {
     userTurn: userText,
   });
 
-  await insertSimulationTurn({
+  insertSimulationTurnSync({
+    id: randomUUID(),
     sessionId,
     turnIndex: nextIndex + 1,
     role: "assistant",

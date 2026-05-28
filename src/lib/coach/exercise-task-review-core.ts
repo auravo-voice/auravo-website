@@ -19,6 +19,136 @@ export const exerciseTaskReviewSchema = z.object({
 
 export type ExerciseTaskReviewPayload = z.infer<typeof exerciseTaskReviewSchema>;
 
+const TASK_REVIEW_STRING_MIN: Record<
+  Exclude<keyof ExerciseTaskReviewPayload, "taskFitScore">,
+  number
+> = {
+  promptCompletion: 20,
+  scenarioRelevance: 20,
+  structureFeedback: 20,
+  toneFeedback: 20,
+  communicationEffectiveness: 20,
+  whatWorked: 15,
+  whatToImprove: 15,
+  revisedNextAttemptStrategy: 20,
+};
+
+const TASK_REVIEW_FIELD_ALIASES: Record<
+  keyof ExerciseTaskReviewPayload,
+  readonly string[]
+> = {
+  taskFitScore: ["taskFitScore", "task_fit_score", "fitScore", "fit_score", "score"],
+  promptCompletion: ["promptCompletion", "prompt_completion", "completion", "promptFit"],
+  scenarioRelevance: ["scenarioRelevance", "scenario_relevance", "relevance", "scenarioFit"],
+  structureFeedback: ["structureFeedback", "structure_feedback", "structure", "structureNotes"],
+  toneFeedback: ["toneFeedback", "tone_feedback", "tone", "deliveryFeedback", "delivery"],
+  communicationEffectiveness: [
+    "communicationEffectiveness",
+    "communication_effectiveness",
+    "effectiveness",
+    "communication",
+    "clarity",
+  ],
+  whatWorked: ["whatWorked", "what_worked", "strengths", "positives", "wins"],
+  whatToImprove: ["whatToImprove", "what_to_improve", "improvements", "gaps", "weaknesses"],
+  revisedNextAttemptStrategy: [
+    "revisedNextAttemptStrategy",
+    "revised_next_attempt_strategy",
+    "nextStrategy",
+    "nextSteps",
+    "strategy",
+    "nextAttempt",
+  ],
+};
+
+function asCoachString(v: unknown): string {
+  if (typeof v === "string") return v.trim();
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (Array.isArray(v)) return v.map(asCoachString).filter(Boolean).join(" ").trim();
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.text === "string") return o.text.trim();
+    if (typeof o.content === "string") return o.content.trim();
+    if (typeof o.feedback === "string") return o.feedback.trim();
+  }
+  return "";
+}
+
+/** Unwrap common Qwen nesting (e.g. `{ "review": { ... } }`). */
+function unwrapTaskReviewRoot(parsed: unknown): Record<string, unknown> {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  let o = { ...(parsed as Record<string, unknown>) };
+  for (const key of ["review", "taskReview", "task_review", "result", "feedback", "evaluation", "data"]) {
+    const inner = o[key];
+    if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+      o = { ...o, ...(inner as Record<string, unknown>) };
+    }
+  }
+  return o;
+}
+
+function pickTaskReviewString(o: Record<string, unknown>, field: keyof ExerciseTaskReviewPayload): string {
+  if (field === "taskFitScore") return "";
+  const aliases = TASK_REVIEW_FIELD_ALIASES[field];
+  return pickTaskReviewStringFromAliases(o, aliases);
+}
+
+function pickTaskReviewStringFromAliases(o: Record<string, unknown>, aliases: readonly string[]): string {
+  for (const key of aliases) {
+    const s = asCoachString(o[key]);
+    if (s) return s;
+  }
+  return "";
+}
+
+function coerceTaskFitScore(v: unknown, fallback: number): number {
+  const n =
+    typeof v === "number"
+      ? v
+      : typeof v === "string" && v.trim() !== ""
+        ? Number.parseInt(v, 10)
+        : NaN;
+  if (Number.isFinite(n)) return Math.max(0, Math.min(100, Math.round(n)));
+  return fallback;
+}
+
+/**
+ * Coerce partial / mis-shaped Qwen JSON before Zod. Missing or too-short fields are filled from
+ * {@link buildFallbackTaskReview} so practice finalize always returns a complete task review.
+ */
+export function normalizeTaskReviewJson(
+  parsed: unknown,
+  fallback: ExerciseTaskReviewPayload,
+): ExerciseTaskReviewPayload {
+  const o = unwrapTaskReviewRoot(parsed);
+  let scoreCandidate: unknown;
+  for (const key of TASK_REVIEW_FIELD_ALIASES.taskFitScore) {
+    if (o[key] != null && o[key] !== "") {
+      scoreCandidate = o[key];
+      break;
+    }
+  }
+  const taskFitScore = coerceTaskFitScore(scoreCandidate, fallback.taskFitScore);
+
+  const pick = (field: Exclude<keyof ExerciseTaskReviewPayload, "taskFitScore">) => {
+    const min = TASK_REVIEW_STRING_MIN[field];
+    const fromLlm = pickTaskReviewString(o, field);
+    return fromLlm.length >= min ? fromLlm : fallback[field];
+  };
+
+  return exerciseTaskReviewSchema.parse({
+    taskFitScore,
+    promptCompletion: pick("promptCompletion"),
+    scenarioRelevance: pick("scenarioRelevance"),
+    structureFeedback: pick("structureFeedback"),
+    toneFeedback: pick("toneFeedback"),
+    communicationEffectiveness: pick("communicationEffectiveness"),
+    whatWorked: pick("whatWorked"),
+    whatToImprove: pick("whatToImprove"),
+    revisedNextAttemptStrategy: pick("revisedNextAttemptStrategy"),
+  });
+}
+
 export const exerciseTaskReviewResultSchema = exerciseTaskReviewSchema.extend({
   taskReviewSource: z.enum(["ollama", "fallback"]),
 });

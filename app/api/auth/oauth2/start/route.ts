@@ -7,6 +7,7 @@ import {
   type StoredOAuthProvider,
 } from "@/lib/auth/oauth2-constants";
 import { getOAuth2CallbackUrl, getOAuth2Provider } from "@/lib/auth/oauth2";
+import { isPocketBaseAuthEnabled } from "@/lib/storage/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +21,15 @@ const cookieOpts = {
 };
 
 export async function GET(request: NextRequest) {
+  if (!isPocketBaseAuthEnabled()) {
+    return NextResponse.redirect(
+      new URL(
+        `/login?error=${encodeURIComponent("Set NEXT_PUBLIC_POCKETBASE_URL to enable Google sign-in.")}`,
+        request.url,
+      ),
+    );
+  }
+
   const providerName = request.nextUrl.searchParams.get("provider")?.trim() || "google";
   const redirectAfter =
     request.nextUrl.searchParams.get("redirect")?.trim() || "/dashboard";

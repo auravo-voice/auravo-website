@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import PocketBase from "pocketbase";
+import { ensureUserProfile } from "@/db/queries/user";
 import { getPocketBaseUrl } from "@/lib/pocketbase";
 import { PB } from "@/db/collections";
 import { savePocketBaseAuthCookie } from "@/lib/pocketbase/server";
@@ -9,7 +10,12 @@ import {
   AURAVO_OAUTH_REDIRECT_COOKIE,
   type StoredOAuthProvider,
 } from "@/lib/auth/oauth2-constants";
+import {
+  AURAVO_USER_ID_COOKIE,
+  auravoUserIdCookieOptions,
+} from "@/lib/auth/auravo-user-cookie";
 import { getOAuth2CallbackUrl } from "@/lib/auth/oauth2";
+import { isSqliteStorage } from "@/lib/storage/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -68,14 +74,18 @@ export async function GET(request: NextRequest) {
     (typeof meta?.email === "string" && meta.email.split("@")[0]) ||
     "Learner";
 
-  if (pb.authStore.record?.id) {
+  const userId = pb.authStore.record?.id;
+  if (userId) {
     try {
-      await pb.collection(PB.users).update(pb.authStore.record.id, {
+      await pb.collection(PB.users).update(userId, {
         name: display,
         display_name: display,
       });
     } catch {
       /* optional profile fields */
+    }
+    if (isSqliteStorage()) {
+      await ensureUserProfile(userId, { displayName: display });
     }
   }
 
@@ -85,5 +95,8 @@ export async function GET(request: NextRequest) {
   const res = NextResponse.redirect(new URL(dest, request.url));
   res.cookies.delete(AURAVO_OAUTH_PROVIDER_COOKIE);
   res.cookies.delete(AURAVO_OAUTH_REDIRECT_COOKIE);
+  if (userId && isSqliteStorage()) {
+    res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
+  }
   return res;
 }

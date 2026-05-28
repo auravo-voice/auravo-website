@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import {
   createOnboardingBaseline,
   createPracticeSession,
@@ -12,7 +12,9 @@ import { ensureUserProfile } from "@/db/queries/user";
 import { writeBaselineHandoffToken } from "@/lib/assessment/baseline-handoff-disk";
 import {
   AURAVO_PENDING_BASELINE_SESSION_COOKIE,
+  AURAVO_USER_ID_COOKIE,
   auravoPendingBaselineSessionCookieOptions,
+  auravoUserIdCookieOptions,
 } from "@/lib/auth/auravo-user-cookie";
 import {
   ASSESSMENT_SEGMENT_KINDS,
@@ -23,11 +25,12 @@ import {
   attachDraftSegmentsToSession,
   listDraftSegments,
 } from "@/db/queries/baseline-segments";
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+import { resolveDraftSegmentAudio } from "@/lib/storage/audio-path";
+import { isPocketBaseStorage } from "@/lib/storage/env";
+import { getServerPocketBase } from "@/lib/pocketbase/server";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
-import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
-import { getServerPocketBase } from "@/lib/pocketbase/server";
-import { resolveAudioAbsolutePaths } from "@/lib/storage/audio-path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,17 +79,27 @@ export async function POST(req: Request) {
   }
 
   const orderedDrafts = ASSESSMENT_SEGMENT_KINDS.map((k) => haveByKind[k]!);
-  const pb = await getServerPocketBase();
-  const absolutePaths = await resolveAudioAbsolutePaths(
-    orderedDrafts.map((d) => d.audioRelativePath),
-    pb,
-  );
+  const pb = isPocketBaseStorage() ? await getServerPocketBase() : undefined;
+  let absolutePaths: string[];
+  try {
+    absolutePaths = await Promise.all(
+      orderedDrafts.map((d) => resolveDraftSegmentAudio(userId, d, pb)),
+    );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Could not load segment audio.";
+    return NextResponse.json(
+      { error: `${msg} Re-record any missing segment and try again.` },
+      { status: 422 },
+    );
+  }
   const totalDurationMs = orderedDrafts.reduce((a, d) => a + (d.durationMs ?? 0), 0) || null;
   const fallbackTranscript = orderedDrafts
     .map((d) => (d.transcript ?? "").trim())
     .filter(Boolean)
     .join("\n\n");
 
+  // Run the canonical analysis on the concatenated audio. If real transcription is unavailable,
+  // gracefully degrade to the per-segment transcripts that were already produced live.
   let analysis;
   let degraded = false;
   try {
@@ -120,6 +133,7 @@ export async function POST(req: Request) {
     );
   }
 
+  const primaryAudio = orderedDrafts[0]!.audioRelativePath;
   const manifest = orderedDrafts.map((d) => ({
     kind: d.segmentKind,
     audioRelativePath: d.audioRelativePath,
@@ -130,6 +144,7 @@ export async function POST(req: Request) {
     userId,
     kind: "onboarding_assessment",
     title: "Initial assessment",
+    audioRelativePath: primaryAudio,
     durationMs: totalDurationMs,
     segmentsJson: JSON.stringify(manifest),
   });
@@ -152,9 +167,9 @@ export async function POST(req: Request) {
   await attachDraftSegmentsToSession(userId, sessionId);
 
   try {
-    await writeBaselineHandoffToken(sessionId, userId);
+    writeBaselineHandoffToken(sessionId, userId);
   } catch {
-    /* handoff is best-effort */
+    /* disk handoff is best-effort; SQLite row remains the source of truth */
   }
 
   const dimensions = scoresToRadarDimensions(analysis.scores);
@@ -183,6 +198,7 @@ export async function POST(req: Request) {
     recommendedExercises: analysis.candidateExercises,
     degraded,
   });
+  res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
   res.cookies.set(AURAVO_PENDING_BASELINE_SESSION_COOKIE, sessionId, auravoPendingBaselineSessionCookieOptions());
   return res;
 }

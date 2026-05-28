@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   ArrowRight,
   CheckCircle2,
@@ -19,6 +20,7 @@ import {
   clearClientPendingBaselineSession,
 } from "@/lib/auth/set-auravo-user-cookie-client";
 import { AURAVO_BASELINE_HANDOFF_SESSION_STORAGE_KEY } from "@/lib/auth/auravo-user-cookie-constants";
+import { recordingValidationError, stopMediaRecorderAndBuildBlob } from "@/lib/audio/finish-recording";
 import { startMicLevelMonitor, type MicMonitorHandle } from "@/lib/audio/mic-monitor";
 import {
   ASSESSMENT_PROMPTS,
@@ -27,11 +29,10 @@ import {
   totalAssessmentTargetSeconds,
   type AssessmentSegmentKind,
 } from "@/lib/assessment/segments";
-import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
-import type { RadarDimension } from "@/lib/coach/schemas";
+import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
+import { parseFinalizePayload } from "@/lib/assessment/parse-baseline-payload";
 import {
   AssessmentResultsSummary,
-  type AssessmentBaselinePayload,
 } from "./assessment-results-summary";
 import { VisualPromptScene } from "./visual-prompt-scene";
 
@@ -39,101 +40,6 @@ type Props = { goalId: string | null };
 
 type SegmentSubPhase = "context" | "ready" | "recording" | "uploading" | "complete";
 type GlobalPhase = "loading" | "intro" | "segment" | "finalizing" | "done" | "error";
-
-function parseBaselineAnalysis(o: unknown): BaselineAnalysis {
-  if (!o || typeof o !== "object") return { grammarFlags: [], pronunciationTips: [] };
-  const a = o as Record<string, unknown>;
-  const gRaw = a.grammarFlags;
-  const pRaw = a.pronunciationTips;
-  if (!Array.isArray(gRaw) || !Array.isArray(pRaw)) return { grammarFlags: [], pronunciationTips: [] };
-  const grammarFlags: BaselineAnalysis["grammarFlags"] = [];
-  for (const el of gRaw) {
-    if (!el || typeof el !== "object") continue;
-    const r = el as Record<string, unknown>;
-    if (typeof r.label !== "string" || typeof r.excerpt !== "string" || typeof r.suggestion !== "string") continue;
-    grammarFlags.push({ label: r.label, excerpt: r.excerpt, suggestion: r.suggestion });
-  }
-  const pronunciationTips: BaselineAnalysis["pronunciationTips"] = [];
-  for (const el of pRaw) {
-    if (!el || typeof el !== "object") continue;
-    const r = el as Record<string, unknown>;
-    if (typeof r.heardAs !== "string" || typeof r.confidence !== "number" || typeof r.tip !== "string") continue;
-    pronunciationTips.push({ heardAs: r.heardAs, confidence: r.confidence, tip: r.tip });
-  }
-  return { grammarFlags, pronunciationTips };
-}
-
-function parseFinalizePayload(json: Record<string, unknown>): AssessmentBaselinePayload | null {
-  if (typeof json.userId !== "string" || typeof json.sessionId !== "string") return null;
-  const dimsRaw = json.dimensions;
-  if (!Array.isArray(dimsRaw)) return null;
-  const dimensions: RadarDimension[] = [];
-  for (const el of dimsRaw) {
-    if (!el || typeof el !== "object") return null;
-    const o = el as Record<string, unknown>;
-    if (typeof o.key !== "string" || typeof o.label !== "string" || typeof o.score !== "number") return null;
-    dimensions.push({ key: o.key, label: o.label, score: o.score });
-  }
-
-  let voiceExplanations: Partial<Record<string, string>> | undefined;
-  const va = json.voiceAnalysis;
-  if (va && typeof va === "object") {
-    const exp = (va as Record<string, unknown>).explanations;
-    if (exp && typeof exp === "object" && !Array.isArray(exp)) {
-      voiceExplanations = {};
-      for (const [k, v] of Object.entries(exp)) {
-        if (typeof v === "string" && v.trim()) voiceExplanations[k] = v;
-      }
-      if (Object.keys(voiceExplanations).length === 0) voiceExplanations = undefined;
-    }
-  }
-
-  let coachSummary: AssessmentBaselinePayload["coachSummary"];
-  const cs = json.coachSummary;
-  if (cs && typeof cs === "object") {
-    const o = cs as Record<string, unknown>;
-    const summary = typeof o.summary === "string" ? o.summary : "";
-    const strengths = Array.isArray(o.strengths) ? o.strengths.filter((x): x is string => typeof x === "string") : [];
-    const improvementAreas = Array.isArray(o.improvementAreas)
-      ? o.improvementAreas.filter((x): x is string => typeof x === "string")
-      : [];
-    const recommendationRationale =
-      typeof o.recommendationRationale === "string" ? o.recommendationRationale : undefined;
-    if (summary.trim() || strengths.length || improvementAreas.length) {
-      coachSummary = { summary, strengths, improvementAreas, recommendationRationale };
-    }
-  }
-
-  let recommendedExercises: AssessmentBaselinePayload["recommendedExercises"];
-  const rec = json.recommendedExercises;
-  if (Array.isArray(rec)) {
-    const list = rec.flatMap((row) => {
-      if (!row || typeof row !== "object") return [];
-      const r = row as Record<string, unknown>;
-      if (typeof r.id !== "string" || typeof r.title !== "string") return [];
-      const subtitle = typeof r.subtitle === "string" ? r.subtitle : "";
-      return [{ id: r.id, title: r.title, subtitle }];
-    });
-    recommendedExercises = list.length > 0 ? list : undefined;
-  }
-
-  return {
-    userId: json.userId,
-    sessionId: json.sessionId,
-    transcript: typeof json.transcript === "string" ? json.transcript : "",
-    averageScore:
-      typeof json.averageScore === "number" && Number.isFinite(json.averageScore)
-        ? Math.round(json.averageScore)
-        : 0,
-    goalLabel: typeof json.goalLabel === "string" ? json.goalLabel : null,
-    dimensions,
-    analysis: parseBaselineAnalysis(json.analysis),
-    voiceExplanations,
-    coachSummary,
-    recommendedExercises,
-    degraded: json.degraded === true,
-  };
-}
 
 function StepDots({ completed, currentIndex }: { completed: Set<AssessmentSegmentKind>; currentIndex: number }) {
   return (
@@ -294,16 +200,18 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
     setSubPhase("uploading");
     const end = Date.now();
     const durationMs = startedAtRef.current != null ? end - startedAtRef.current : 0;
-    await new Promise<void>((resolve) => {
-      mr.onstop = () => resolve();
-      mr.stop();
-    });
+    const blob = await stopMediaRecorderAndBuildBlob(mr, chunksRef.current);
     teardownStream();
     mrRef.current = null;
 
-    const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
-    if (blob.size < 32) {
-      setError("Recording was too quiet to score. Try again.");
+    const captureError = recordingValidationError(blob, durationMs, {
+      minDurationMs: 2_000,
+      shortDurationMessage: "Recording was very short. Speak for at least a few seconds, then stop.",
+      emptyCaptureMessage:
+        "No audio was captured. Check your microphone and input device, then try again.",
+    });
+    if (captureError) {
+      setError(captureError);
       setSubPhase("ready");
       return;
     }
@@ -445,7 +353,7 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
           <p className="text-sm font-medium text-muted-foreground">Initial assessment · about {Math.round(totalAssessmentTargetSeconds() / 60)} minutes of speaking</p>
           <CardTitle className="text-2xl">Four short prompts. We measure six dimensions.</CardTitle>
           <CardDescription>
-            You will read one passage, answer two open questions, and describe an illustration. After the last
+            You will read one passage, answer two open questions, and describe a photograph. After the last
             recording we transcribe locally and produce a baseline across pronunciation, grammar, fluency, vocabulary,
             filler words, and pacing within about 15 seconds.
           </CardDescription>
@@ -515,6 +423,9 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
                 When you continue, your personalized practice plan picks up from these results.
               </p>
             </div>
+            <Button variant="outline" className="gap-2" asChild>
+              <Link href="/assessment/results">View saved results later</Link>
+            </Button>
             <Button variant="glow" className="gap-2" onClick={goToDashboard}>
               Start my practice plan
               <ArrowRight className="size-4" />
@@ -584,8 +495,8 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <VisualPromptScene className="w-full max-w-[320px] rounded-2xl border border-border/70" />
               <p className="text-sm text-muted-foreground">
-                Pretend the listener cannot see this. Describe what is in the room, what is happening, and one thing you
-                notice about the mood.
+                Pretend the listener cannot see this. Describe the setting, who you see, what they are doing, and one
+                observation about the scene.
               </p>
             </div>
           )}

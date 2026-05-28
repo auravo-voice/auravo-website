@@ -141,7 +141,7 @@ This design supports **Vercel serverless** (no local disk DB) and **containers**
 
 ## 8. Coach / LLM behavior
 
-- **Primary:** Ollama at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), model `OLLAMA_MODEL` (default `qwen2.5:7b`).
+- **Primary:** Ollama at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), model `OLLAMA_MODEL` (default `qwen2.5:3b`).
 - **Fallback:** deterministic copy in `src/lib/coach/fallbacks.ts` when Ollama is down or times out.
 - **Timeout:** `AURAVO_COACH_TIMEOUT_MS` (default 120s).
 

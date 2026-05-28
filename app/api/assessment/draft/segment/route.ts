@@ -1,12 +1,18 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { getDataDir } from "@/db/client";
 import { ensureUserProfile } from "@/db/queries/user";
 import { isOnboardingGoalId } from "@/lib/coach/dashboard";
 import { getTranscriptionAdapter } from "@/lib/transcription";
+import {
+  AURAVO_USER_ID_COOKIE,
+  auravoUserIdCookieOptions,
+} from "@/lib/auth/auravo-user-cookie";
 import { ASSESSMENT_SEGMENT_KINDS, isAssessmentSegmentKind } from "@/lib/assessment/segments";
 import { replaceDraftSegment, listDraftSegments } from "@/db/queries/baseline-segments";
-import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
-import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,9 +23,9 @@ export const dynamic = "force-dynamic";
  * of the same kind (re-record use case).
  */
 export async function POST(req: Request) {
-  const auth = await requireApiUserId();
-  if (isAuthError(auth)) return auth;
-  const userId = auth;
+  const cookieStore = await cookies();
+  let userId = cookieStore.get(AURAVO_USER_ID_COOKIE)?.value ?? "";
+  if (!userId) userId = randomUUID();
 
   let form: FormData;
   try {
@@ -51,13 +57,20 @@ export async function POST(req: Request) {
   await ensureUserProfile(userId, goalId != null ? { onboardingGoalId: goalId } : {});
 
   const segmentId = randomUUID();
+  const dataDir = getDataDir();
+  const uploadsDir = path.join(dataDir, "uploads");
+  await fs.mkdir(uploadsDir, { recursive: true });
   const ext = audio.type.includes("mp4") ? "m4a" : "webm";
-  const { absolutePath, relativePath } = await writeTempAudioFile(
-    `${segmentId}.${segmentKind}`,
-    audio,
-    ext,
-  );
+  const relativePath = path
+    .join("uploads", `${segmentId}.${segmentKind}.${ext}`)
+    .split(path.sep)
+    .join("/");
+  const absolutePath = path.join(dataDir, relativePath);
+  const buf = Buffer.from(await audio.arrayBuffer());
+  await fs.writeFile(absolutePath, buf);
 
+  // Transcribe now so finalize is fast (the "15 second baseline" promise). If transcription fails we still keep
+  // the file and persist an empty transcript so the learner can move on.
   let transcript: string | null = null;
   try {
     const adapter = getTranscriptionAdapter();
@@ -67,23 +80,24 @@ export async function POST(req: Request) {
     transcript = "";
   }
 
-  await replaceDraftSegment({
+  replaceDraftSegment({
     id: segmentId,
     userId,
     segmentKind,
     audioRelativePath: relativePath,
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
     transcript,
-    audioFile: audio,
   });
 
   const rows = await listDraftSegments(userId);
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     ok: true,
     userId,
     segmentKind,
     completedKinds: rows.map((r) => r.segmentKind),
     orderedKinds: ASSESSMENT_SEGMENT_KINDS,
   });
+  res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
+  return res;
 }

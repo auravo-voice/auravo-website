@@ -5,10 +5,12 @@ import {
   buildFallbackTaskReview,
   exerciseTaskReviewResultSchema,
   exerciseTaskReviewSchema,
+  normalizeTaskReviewJson,
   parseExerciseTaskReviewResult,
   promptTranscriptOverlap,
   rubricInstructionsForExercise,
   type ExerciseContextForTaskReview,
+  type ExerciseTaskReviewPayload,
 } from "@/lib/coach/exercise-task-review-core";
 
 const baseExercise = (over: Partial<ExerciseContextForTaskReview> = {}): ExerciseContextForTaskReview => ({
@@ -110,6 +112,68 @@ describe("rubricInstructionsForExercise", () => {
     );
     expect(text).toContain("unpopular");
     expect(text.toLowerCase()).toContain("change their mind");
+  });
+});
+
+function fallbackPayloadFromInput(
+  over: Partial<ExerciseContextForTaskReview> = {},
+  transcript = "hello world ".repeat(30),
+): ExerciseTaskReviewPayload {
+  const voice = scoresFromAnalysis({ transcript, durationSec: 45 });
+  const full = buildFallbackTaskReview({ exercise: baseExercise(over), transcript, voice });
+  return {
+    taskFitScore: full.taskFitScore,
+    promptCompletion: full.promptCompletion,
+    scenarioRelevance: full.scenarioRelevance,
+    structureFeedback: full.structureFeedback,
+    toneFeedback: full.toneFeedback,
+    communicationEffectiveness: full.communicationEffectiveness,
+    whatWorked: full.whatWorked,
+    whatToImprove: full.whatToImprove,
+    revisedNextAttemptStrategy: full.revisedNextAttemptStrategy,
+  };
+}
+
+describe("normalizeTaskReviewJson", () => {
+  it("fills missing Qwen fields from fallback (partial JSON bug)", () => {
+    const fallback = fallbackPayloadFromInput();
+    const partial = {
+      taskFitScore: 65,
+      promptCompletion:
+        "You addressed the manager ping and gave enough substance to evaluate prompt coverage meaningfully.",
+    };
+    const out = normalizeTaskReviewJson(partial, fallback);
+    expect(exerciseTaskReviewSchema.safeParse(out).success).toBe(true);
+    expect(out.taskFitScore).toBe(65);
+    expect(out.promptCompletion).toBe(partial.promptCompletion);
+    expect(out.scenarioRelevance).toBe(fallback.scenarioRelevance);
+    expect(out.structureFeedback.length).toBeGreaterThanOrEqual(20);
+  });
+
+  it("unwraps nested review object and snake_case keys", () => {
+    const fallback = fallbackPayloadFromInput();
+    const nested = {
+      review: {
+        task_fit_score: 80,
+        prompt_completion:
+          "Strong alignment with the migration status prompt and clear next-step ownership for the listener.",
+        scenario_relevance:
+          "The workplace scenario reads clearly and the stakes match what the manager asked for in the ping.",
+        structure_feedback:
+          "Three-part arc is visible; signpost each beat so the listener knows when you move sections.",
+        tone_feedback:
+          "Tone stayed professional and calm; reduce rushed connectors in the middle third of the answer.",
+        communication_effectiveness:
+          "A busy listener could extract status, risk, and next step without needing a repeat.",
+        what_worked: "Concrete nouns around migration and a credible owner for the follow-up.",
+        what_to_improve: "Name blockers earlier so accountability is obvious mid-answer.",
+        revised_next_attempt_strategy:
+          "Open with headline outcome, then blockers, then one named owner and date before you invite questions.",
+      },
+    };
+    const out = normalizeTaskReviewJson(nested, fallback);
+    expect(out.taskFitScore).toBe(80);
+    expect(out.promptCompletion).toContain("Strong alignment");
   });
 });
 

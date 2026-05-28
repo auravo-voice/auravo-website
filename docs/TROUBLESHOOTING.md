@@ -147,7 +147,7 @@ curl http://127.0.0.1:11434/api/tags   # Ollama up?
 
 **Fix:**
 
-- Start Ollama; `ollama pull qwen2.5:7b`
+- Start Ollama; `ollama pull qwen2.5:3b`
 - Increase `AURAVO_COACH_TIMEOUT_MS=180000` or `240000`
 - From container: `OLLAMA_BASE_URL=http://host.containers.internal:11434`
 

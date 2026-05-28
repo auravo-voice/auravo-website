@@ -16,7 +16,7 @@ import { getAuthUserDisplayName } from "@/lib/auth/user-display-name";
 import { AURAVO_PENDING_BASELINE_SESSION_COOKIE } from "@/lib/auth/auravo-user-cookie-constants";
 import { getBaselineBundleForPracticeSession, getOnboardingBaselineForUser, type BaselineBundle } from "@/db/queries/baseline";
 import { getUserSessionStats } from "@/db/queries/sessions";
-import { isUuidLike } from "@/lib/util/is-uuid-like";
+import { isRecordId } from "@/lib/util/is-uuid-like";
 import { ensureUserProfile } from "@/db/queries/user";
 import { SkillRadar } from "@/components/skill-radar";
 import { Badge } from "@/components/ui/badge";
@@ -145,32 +145,41 @@ async function DashboardCoachContent({
   const pendingSessionRaw = cookieStore.get(AURAVO_PENDING_BASELINE_SESSION_COOKIE)?.value?.trim() ?? null;
 
   let resolvedSessionId: string | null = null;
-  if (sessionIdFromUrl && isUuidLike(sessionIdFromUrl)) {
+  if (sessionIdFromUrl && isRecordId(sessionIdFromUrl)) {
     resolvedSessionId = sessionIdFromUrl;
-  } else if (pendingSessionRaw && isUuidLike(pendingSessionRaw)) {
+  } else if (pendingSessionRaw && isRecordId(pendingSessionRaw)) {
     resolvedSessionId = pendingSessionRaw;
   }
 
-  if (resolvedSessionId) {
-    baseline = await getBaselineBundleForPracticeSession(resolvedSessionId);
-  }
-
   const authUserId = await getAuthenticatedUserId();
-  if (!baseline && authUserId) {
-    await ensureUserProfile(authUserId);
-    baseline = await getOnboardingBaselineForUser(authUserId);
-  } else if (baseline) {
-    await ensureUserProfile(baseline.user.id);
-  }
-
-  if (!baseline) {
+  if (!authUserId) {
     const displayName = (await getAuthUserDisplayName()) ?? "Learner";
     return <DashboardEmptyState displayName={displayName} />;
   }
 
+  const baselineFromSession = resolvedSessionId
+    ? await getBaselineBundleForPracticeSession(resolvedSessionId)
+    : null;
+
+  const [baselineFromUser, stats, profile] = await Promise.all([
+    baselineFromSession ? Promise.resolve(null) : getOnboardingBaselineForUser(authUserId),
+    getUserSessionStats(authUserId),
+    ensureUserProfile(authUserId),
+  ]);
+
+  baseline =
+    baselineFromSession && baselineFromSession.user.id === authUserId
+      ? baselineFromSession
+      : baselineFromUser;
+
+  if (!baseline) {
+    const displayName = profile.displayName || ((await getAuthUserDisplayName()) ?? "Learner");
+    return <DashboardEmptyState displayName={displayName} />;
+  }
+
   const needsHandoffCleanup =
-    (sessionIdFromUrl && isUuidLike(sessionIdFromUrl)) ||
-    (pendingSessionRaw != null && pendingSessionRaw !== "" && isUuidLike(pendingSessionRaw));
+    (sessionIdFromUrl && isRecordId(sessionIdFromUrl)) ||
+    (pendingSessionRaw != null && pendingSessionRaw !== "" && isRecordId(pendingSessionRaw));
 
   const scores: SixDimensionScores = {
     pronunciation: baseline.scores.pronunciation,
@@ -182,7 +191,10 @@ async function DashboardCoachContent({
   };
 
   const ordered = scoresToRadarDimensions(scores);
-  const avg = Math.round(ordered.reduce((a, d) => a + d.score, 0) / ordered.length);
+  const avgRaw = ordered.length
+    ? ordered.reduce((a, d) => a + d.score, 0) / ordered.length
+    : 0;
+  const avg = Number.isFinite(avgRaw) ? Math.round(avgRaw) : 0;
 
   const storedGoalId = isOnboardingGoalId(baseline.user.onboardingGoalId ?? undefined)
     ? baseline.user.onboardingGoalId
@@ -197,7 +209,6 @@ async function DashboardCoachContent({
     onboardingGoalId: goalForNarrative,
   };
 
-  const stats = await getUserSessionStats(baseline.user.id);
   const streakLabel = stats.streakDays === 1 ? "1 day streak" : `${stats.streakDays} day streak`;
   const sessionsLabel = stats.totalSessions === 1 ? "1 session" : `${stats.totalSessions} sessions`;
 
@@ -279,12 +290,17 @@ async function DashboardCoachContent({
               <div key={d.key}>
                 <div className="mb-1 flex justify-between text-sm">
                   <span>{d.label}</span>
-                  <span className="tabular-nums text-muted-foreground">{Math.round(d.score)}</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {Number.isFinite(d.score) ? Math.round(d.score) : 0}
+                  </span>
                 </div>
                 <Progress value={d.score} />
               </div>
             ))}
             <Separator />
+            <Button variant="outline" size="sm" className="w-full" asChild>
+              <Link href="/assessment/results">View full baseline results</Link>
+            </Button>
             <p className="text-xs text-muted-foreground">
               Re-run the assessment from the sidebar to refresh your baseline. Scores are never invented by the chat
               model—they come from your stored session only.

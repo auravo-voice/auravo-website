@@ -8,7 +8,7 @@ export function isAssessmentSegmentKind(v: unknown): v is AssessmentSegmentKind 
 
 /**
  * Hard-coded prompts. Keep these deterministic and short — the model never decides what learners hear during the
- * baseline. The visual segment uses a fixed inline scene rendered in `assessment-multi-recorder.tsx` so the
+ * baseline. The visual segment uses a fixed photograph in `visual-prompt-scene.tsx` so the
  * description task is grounded in something we both see.
  */
 export const ASSESSMENT_PROMPTS: Record<
@@ -29,7 +29,7 @@ export const ASSESSMENT_PROMPTS: Record<
       "Read the paragraph below at a natural pace. We are listening for clarity, pacing, and how cleanly you handle consonant clusters and longer words.",
     passage:
       "Auravo is a speaking coach you can use anywhere. Each session takes about ten minutes. You speak first; the app listens, then offers a short, specific note. Over time, the same six dimensions — pronunciation, grammar, fluency, vocabulary, filler words, and pacing — get measurably stronger. Today is the first measurement, so speak the way you normally speak.",
-    targetSeconds: 45,
+    targetSeconds: 30,
   },
   open_q1: {
     title: "Tell us about something you are working on",
@@ -46,8 +46,8 @@ export const ASSESSMENT_PROMPTS: Record<
   visual: {
     title: "Describe what you see",
     intro:
-      "Look at the illustration on the right and describe it as if you were on a phone call with a friend who cannot see it. Spend about 45 seconds — set the scene, name the elements you notice, and finish with one observation about it.",
-    targetSeconds: 45,
+      "Look at the photograph and describe it as if you were on a phone call with a friend who cannot see it. Spend about 30 seconds — set the scene, name the people and details you notice, and finish with one observation about what is going on.",
+    targetSeconds: 30,
   },
 };
 

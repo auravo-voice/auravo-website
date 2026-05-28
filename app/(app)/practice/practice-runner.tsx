@@ -17,6 +17,7 @@ import {
 import type { RadarDimension } from "@/lib/coach/schemas";
 import { parseExerciseTaskReviewResult, type ExerciseTaskReviewResult } from "@/lib/coach/exercise-task-review-core";
 import { setClientAuravoUserId } from "@/lib/auth/set-auravo-user-cookie-client";
+import { recordingValidationError, stopMediaRecorderAndBuildBlob } from "@/lib/audio/finish-recording";
 import { startMicLevelMonitor, type MicMonitorHandle } from "@/lib/audio/mic-monitor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -172,16 +173,19 @@ export function PracticeRunner({ prompts, baselineAverage }: Props) {
     setPhase("uploading");
     const end = Date.now();
     const durationMs = startedAtRef.current != null ? end - startedAtRef.current : 0;
-    await new Promise<void>((resolve) => {
-      mr.onstop = () => resolve();
-      mr.stop();
-    });
+    const blob = await stopMediaRecorderAndBuildBlob(mr, chunksRef.current);
     teardown();
     mrRef.current = null;
 
-    const blob = new Blob(chunksRef.current, { type: mr.mimeType || "audio/webm" });
-    if (blob.size < 32) {
-      setError("Recording was too quiet to score. Try again.");
+    const captureError = recordingValidationError(blob, durationMs, {
+      minDurationMs: 2_000,
+      shortDurationMessage:
+        "Recording was very short. Speak for at least a few seconds, then tap Stop & save.",
+      emptyCaptureMessage:
+        "No audio was captured. Check your microphone and input device, then try again.",
+    });
+    if (captureError) {
+      setError(captureError);
       setPhase("ready");
       return;
     }
@@ -413,10 +417,16 @@ export function PracticeRunner({ prompts, baselineAverage }: Props) {
               <Progress value={Math.min(100, Math.round((elapsedSec / current.targetSeconds) * 100))} />
             )}
             {phase === "uploading" && (
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
-                Transcribing and scoring…
-              </p>
+              <div className="space-y-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+                <p className="flex items-center gap-2 font-medium text-foreground">
+                  <Loader2 className="size-4 animate-spin shrink-0" />
+                  Analyzing your recording…
+                </p>
+                <p className="text-xs leading-relaxed">
+                  Usually about 1–2 minutes on this machine: local transcription, voice scoring, then coach
+                  feedback. Keep this tab open.
+                </p>
+              </div>
             )}
           </>
         )}

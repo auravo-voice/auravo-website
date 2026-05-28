@@ -1,12 +1,11 @@
 import type { WordTiming, SegmentTiming } from "@/lib/transcription/types";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
 import { deriveVadStats, type VadFeatures } from "@/lib/audio/vad";
+import { countFillerWords } from "@/lib/analysis/filler-words";
 
 /** Pause = silence between adjacent words >= MIN_PAUSE_MS. Long pause = >= LONG_PAUSE_MS. */
 export const MIN_PAUSE_MS = 350;
 export const LONG_PAUSE_MS = 1200;
-
-const FILLER_RE = /\b(um+|uh+|uhm+|erm+|ah+|hmm+|like|you know|i mean|so basically|basically|actually|kind of|sort of)\b/gi;
 
 /** Output of {@link computeDerivedMetrics}. Drives both the scoring layer and the UI's "key metrics" row. */
 export type DerivedMetrics = {
@@ -192,8 +191,6 @@ export function computeDerivedMetrics(input: {
 }): DerivedMetrics {
   const transcript = input.transcript;
   const words = tokenize(transcript);
-  const lowerText = transcript.toLowerCase();
-  const fillerMatches = lowerText.match(FILLER_RE) ?? [];
   const sentenceParts = transcript.split(/[.!?]+/).map((s) => s.trim()).filter(Boolean);
   const unique = new Set(words.map(normaliseWord).filter(Boolean));
 
@@ -215,7 +212,7 @@ export function computeDerivedMetrics(input: {
   // Transcript counters (always available).
   const wordCount = words.length;
   const sentenceCount = Math.max(1, sentenceParts.length);
-  const fillerCount = fillerMatches.length;
+  const fillerCount = countFillerWords({ transcript, wordTimings: input.wordTimings });
   const fillerRatePerMin = safeMinutes && safeMinutes > 0 ? fillerCount / safeMinutes : fillerCount * 6; // assume ~10s if unknown
   const repeatedWordCount = countRepeatedWords(words);
   const restartCount = countRestarts(transcript);

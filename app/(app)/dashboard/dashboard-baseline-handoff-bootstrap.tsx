@@ -3,7 +3,7 @@
 import * as React from "react";
 import { AURAVO_BASELINE_HANDOFF_SESSION_STORAGE_KEY } from "@/lib/auth/auravo-user-cookie-constants";
 import { clearClientPendingBaselineSession, setClientAuravoUserId } from "@/lib/auth/set-auravo-user-cookie-client";
-import { isUuidLike } from "@/lib/util/is-uuid-like";
+import { isRecordId } from "@/lib/util/is-uuid-like";
 
 /**
  * After assessment, Safari may drop `Set-Cookie` from the multipart `fetch` before `location.assign`.
@@ -44,7 +44,7 @@ export function DashboardBaselineHandoffBootstrap() {
       return;
     }
 
-    if (!sessionId || !isUuidLike(sessionId)) {
+    if (!sessionId || !isRecordId(sessionId)) {
       try {
         window.sessionStorage.removeItem(AURAVO_BASELINE_HANDOFF_SESSION_STORAGE_KEY);
       } catch {
@@ -63,7 +63,7 @@ export function DashboardBaselineHandoffBootstrap() {
           credentials: "include",
           body: JSON.stringify({
             sessionId,
-            ...(handoffUserId && isUuidLike(handoffUserId) ? { userId: handoffUserId } : {}),
+            ...(handoffUserId && isRecordId(handoffUserId) ? { userId: handoffUserId } : {}),
           }),
         });
         if (res.ok) {

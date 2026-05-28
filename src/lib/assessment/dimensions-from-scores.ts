@@ -26,10 +26,15 @@ export const SPEECH_CLARITY_DISCLAIMER =
 
 export const DIMENSION_KEYS: readonly DimensionKey[] = KEY_ORDER;
 
+function clampScore(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export function scoresToRadarDimensions(scores: SixDimensionScores): RadarDimension[] {
   return KEY_ORDER.map((k) => ({
     key: k,
     label: DIMENSION_LABELS[k],
-    score: scores[k],
+    score: clampScore(scores[k]),
   }));
 }

@@ -156,6 +156,7 @@ Ollama is **not** embedded in PocketBase; it must be reachable from wherever API
 - **Good for:** UI, auth, PocketBase CRUD.
 - **Limitation:** No long-lived local disk; transcription/Ollama need external URLs or accept placeholder transcription.
 - **Build:** `npm ci` + `npm run build`; commit synced `package-lock.json`.
+- **Deploy hygiene:** if Vercel reports `npm ci` lockfile mismatch for an unchanged commit, redeploy with build cache disabled once.
 
 ### B. Container on Debian (Podman/Docker) + nginx + Cloudflare
 

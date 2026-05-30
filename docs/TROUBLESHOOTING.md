@@ -72,6 +72,32 @@ git push
 
 ---
 
+### White screen after Google sign-in on `auravo.ai` / `www.auravo.ai`
+
+**Symptom:** Login with Google appears to work, then blank page on `/dashboard`.
+
+**Cause:** DNS still routes `www.auravo.ai` (or apex → www) to **Vercel**, not Hetzner. Vercel cannot run SQLite → `/dashboard` returns **500** (`x-vercel-id` in response headers).
+
+**Check:**
+
+```bash
+curl -sI https://www.auravo.ai/dashboard | grep -i x-vercel
+curl -sI https://auravo-web.auravo.ai/dashboard | grep -i x-vercel
+```
+
+If the first shows `x-vercel-id` and the second does not, fix **Cloudflare DNS**:
+
+| Record | Type | Value |
+|--------|------|--------|
+| `@` (auravo.ai) | A | `91.99.144.77` (proxied) |
+| `www` | A | `91.99.144.77` (proxied) |
+
+Remove CNAMEs pointing `@` or `www` to Vercel. Until DNS propagates, use **https://auravo-web.auravo.ai** (already on Hetzner).
+
+Register Google OAuth redirect URIs for every app host you use, e.g. `https://www.auravo.ai/api/auth/oauth2/callback` and `https://auravo-web.auravo.ai/api/auth/oauth2/callback`.
+
+---
+
 ### Google sign-in fails or redirects wrong
 
 **Symptom:** Error on login page, or loop after Google.

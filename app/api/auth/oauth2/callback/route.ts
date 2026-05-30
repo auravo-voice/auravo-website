@@ -4,7 +4,7 @@ import PocketBase from "pocketbase";
 import { ensureUserProfile } from "@/db/queries/user";
 import { getPocketBaseUrl } from "@/lib/pocketbase";
 import { PB } from "@/db/collections";
-import { savePocketBaseAuthCookie } from "@/lib/pocketbase/server";
+import { applyPocketBaseAuthCookie } from "@/lib/pocketbase/server";
 import {
   AURAVO_OAUTH_PROVIDER_COOKIE,
   AURAVO_OAUTH_REDIRECT_COOKIE,
@@ -89,10 +89,9 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  await savePocketBaseAuthCookie(pb);
-
   const dest = redirectAfter.startsWith("/") ? redirectAfter : "/dashboard";
   const res = NextResponse.redirect(new URL(dest, request.url));
+  applyPocketBaseAuthCookie(res, pb);
   res.cookies.delete(AURAVO_OAUTH_PROVIDER_COOKIE);
   res.cookies.delete(AURAVO_OAUTH_REDIRECT_COOKIE);
   if (userId && isSqliteStorage()) {

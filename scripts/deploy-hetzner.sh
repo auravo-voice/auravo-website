@@ -9,7 +9,7 @@ NETWORK="${NETWORK:-voca}"
 DATA_VOLUME="${DATA_VOLUME:-auravo-data}"
 
 NEXT_PUBLIC_POCKETBASE_URL="${NEXT_PUBLIC_POCKETBASE_URL:-https://pb.auravo.ai}"
-NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-https://auravo.ai}"
+NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-https://www.auravo.ai}"
 POCKETBASE_URL="${POCKETBASE_URL:-http://auth:8080}"
 OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://host.containers.internal:11434}"
 

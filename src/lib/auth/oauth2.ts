@@ -6,8 +6,8 @@ import { PB } from "@/db/collections";
 
 /** OAuth callback URL on this Next.js app (must match Google / PocketBase redirect config). */
 export function getOAuth2CallbackUrl(request: NextRequest): string {
-  const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  const base = fromEnv ? fromEnv.replace(/\/$/, "") : request.nextUrl.origin;
+  // Keep callback on the same host that started OAuth (www vs apex vs auravo-web).
+  const base = request.nextUrl.origin.replace(/\/$/, "");
   return `${base}/api/auth/oauth2/callback`;
 }
 

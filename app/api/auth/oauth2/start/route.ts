@@ -7,18 +7,23 @@ import {
   type StoredOAuthProvider,
 } from "@/lib/auth/oauth2-constants";
 import { getOAuth2CallbackUrl, getOAuth2Provider } from "@/lib/auth/oauth2";
+import { getAuravoCookieDomain } from "@/lib/auth/cookie-domain";
 import { isPocketBaseAuthEnabled } from "@/lib/storage/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const cookieOpts = {
-  httpOnly: true,
-  secure: process.env.NODE_ENV === "production",
-  sameSite: "lax" as const,
-  path: "/",
-  maxAge: AURAVO_OAUTH_COOKIE_MAX_AGE_SEC,
-};
+function oauthCookieOpts(maxAge: number) {
+  const domain = getAuravoCookieDomain();
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    path: "/",
+    maxAge,
+    ...(domain ? { domain } : {}),
+  };
+}
 
 export async function GET(request: NextRequest) {
   if (!isPocketBaseAuthEnabled()) {
@@ -66,7 +71,7 @@ export async function GET(request: NextRequest) {
   };
 
   const res = NextResponse.redirect(authUrl);
-  res.cookies.set(AURAVO_OAUTH_PROVIDER_COOKIE, JSON.stringify(stored), cookieOpts);
-  res.cookies.set(AURAVO_OAUTH_REDIRECT_COOKIE, safeRedirect, cookieOpts);
+  res.cookies.set(AURAVO_OAUTH_PROVIDER_COOKIE, JSON.stringify(stored), oauthCookieOpts(AURAVO_OAUTH_COOKIE_MAX_AGE_SEC));
+  res.cookies.set(AURAVO_OAUTH_REDIRECT_COOKIE, safeRedirect, oauthCookieOpts(AURAVO_OAUTH_COOKIE_MAX_AGE_SEC));
   return res;
 }

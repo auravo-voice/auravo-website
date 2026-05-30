@@ -14,16 +14,14 @@ import {
   AURAVO_USER_ID_COOKIE,
   auravoUserIdCookieOptions,
 } from "@/lib/auth/auravo-user-cookie";
-import { getOAuth2CallbackUrl } from "@/lib/auth/oauth2";
+import { getOAuth2CallbackUrl, publicUrl } from "@/lib/auth/oauth2";
 import { isSqliteStorage } from "@/lib/storage/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 function loginWithError(request: NextRequest, message: string) {
-  return NextResponse.redirect(
-    new URL(`/login?error=${encodeURIComponent(message)}`, request.url),
-  );
+  return NextResponse.redirect(publicUrl(request, `/login?error=${encodeURIComponent(message)}`));
 }
 
 export async function GET(request: NextRequest) {
@@ -90,7 +88,7 @@ export async function GET(request: NextRequest) {
   }
 
   const dest = redirectAfter.startsWith("/") ? redirectAfter : "/dashboard";
-  const res = NextResponse.redirect(new URL(dest, request.url));
+  const res = NextResponse.redirect(publicUrl(request, dest));
   applyPocketBaseAuthCookie(res, pb);
   res.cookies.delete(AURAVO_OAUTH_PROVIDER_COOKIE);
   res.cookies.delete(AURAVO_OAUTH_REDIRECT_COOKIE);

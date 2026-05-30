@@ -20,12 +20,19 @@ export function getPublicOrigin(request: NextRequest): string {
   const fromEnv = process.env.NEXT_PUBLIC_APP_URL?.trim();
   if (fromEnv) return fromEnv.replace(/\/$/, "");
 
+  // Dev fallback only — production should never reach localhost here.
   return request.nextUrl.origin.replace(/\/$/, "");
 }
 
 /** OAuth callback URL on this Next.js app (must match Google / PocketBase redirect config). */
 export function getOAuth2CallbackUrl(request: NextRequest): string {
   return `${getPublicOrigin(request)}/api/auth/oauth2/callback`;
+}
+
+/** Build an absolute URL on the public host (for redirects after OAuth). */
+export function publicUrl(request: NextRequest, pathname: string): URL {
+  const path = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return new URL(path, `${getPublicOrigin(request)}/`);
 }
 
 export async function getOAuth2Provider(providerName: string) {

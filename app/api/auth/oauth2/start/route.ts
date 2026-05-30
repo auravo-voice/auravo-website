@@ -6,7 +6,7 @@ import {
   AURAVO_OAUTH_REDIRECT_COOKIE,
   type StoredOAuthProvider,
 } from "@/lib/auth/oauth2-constants";
-import { getOAuth2CallbackUrl, getOAuth2Provider } from "@/lib/auth/oauth2";
+import { getOAuth2CallbackUrl, getOAuth2Provider, publicUrl } from "@/lib/auth/oauth2";
 import { getAuravoCookieDomain } from "@/lib/auth/cookie-domain";
 import { isPocketBaseAuthEnabled } from "@/lib/storage/env";
 
@@ -28,9 +28,9 @@ function oauthCookieOpts(maxAge: number) {
 export async function GET(request: NextRequest) {
   if (!isPocketBaseAuthEnabled()) {
     return NextResponse.redirect(
-      new URL(
+      publicUrl(
+        request,
         `/login?error=${encodeURIComponent("Set NEXT_PUBLIC_POCKETBASE_URL to enable Google sign-in.")}`,
-        request.url,
       ),
     );
   }
@@ -47,16 +47,14 @@ export async function GET(request: NextRequest) {
     provider = await getOAuth2Provider(providerName);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not reach PocketBase.";
-    return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(msg)}`, request.url),
-    );
+    return NextResponse.redirect(publicUrl(request, `/login?error=${encodeURIComponent(msg)}`));
   }
 
   if (!provider) {
     return NextResponse.redirect(
-      new URL(
+      publicUrl(
+        request,
         `/login?error=${encodeURIComponent(`Sign-in with ${providerName} is not enabled on the server.`)}`,
-        request.url,
       ),
     );
   }

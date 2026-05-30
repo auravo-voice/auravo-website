@@ -176,17 +176,46 @@ podman build \
 
 ### 7.2 Run container
 
+On Hetzner, PocketBase runs as container `auth` on Podman network `voca`. The app must join that network and use an internal PB URL (host `/etc/hosts` often maps `pb.auravo.ai` → `127.0.0.1`, which breaks server-side HTTPS from inside containers).
+
+**Ollama:** host `ollama serve` defaults to `127.0.0.1:11434`. Containers reach it via `host.containers.internal` only after binding Ollama on all interfaces:
+
 ```bash
+sudo mkdir -p /etc/systemd/system/ollama.service.d
+printf '%s\n' '[Service]' 'Environment="OLLAMA_HOST=0.0.0.0:11434"' | sudo tee /etc/systemd/system/ollama.service.d/override.conf
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+```
+
+**Deploy** (from repo root on the server):
+
+```bash
+chmod +x scripts/deploy-hetzner.sh
+./scripts/deploy-hetzner.sh
+```
+
+Or manually:
+
+```bash
+podman volume create auravo-data  # once
+
 podman run -d --name auravo-web \
+  --network voca \
   -p 127.0.0.1:3001:3000 \
+  -v auravo-data:/data \
   -e NODE_ENV=production \
+  -e NEXT_PUBLIC_POCKETBASE_URL=https://pb.auravo.ai \
+  -e NEXT_PUBLIC_APP_URL=https://auravo.ai \
+  -e POCKETBASE_URL=http://auth:8080 \
+  -e AURAVO_STORAGE=sqlite \
+  -e AURAVO_DB_DIR=/data \
   -e OLLAMA_BASE_URL=http://host.containers.internal:11434 \
+  -e OLLAMA_MODEL=qwen2.5:3b \
   -e TRANSCRIPTION_PROVIDER=faster-whisper \
   --replace \
   auravo-web:latest
 ```
 
-Adjust `OLLAMA_BASE_URL` to wherever Ollama listens on the host.
+Set `NEXT_PUBLIC_APP_URL` to your public hostname (`https://auravo.ai` or `https://auravo-web.auravo.ai`) for Google OAuth callbacks.
 
 ### 7.3 nginx upstream
 

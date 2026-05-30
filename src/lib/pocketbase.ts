@@ -1,7 +1,16 @@
 import PocketBase from "pocketbase";
 
-/** Public PocketBase API URL (browser + server). */
+/**
+ * PocketBase API URL.
+ * - Browser: `NEXT_PUBLIC_POCKETBASE_URL` (public HTTPS).
+ * - Server: `POCKETBASE_URL` when set (e.g. `http://auth:8080` on a private Podman network).
+ *   Needed when `/etc/hosts` maps the public hostname to `127.0.0.1` inside containers.
+ */
 export function getPocketBaseUrl(): string {
+  if (typeof window === "undefined") {
+    const internal = process.env.POCKETBASE_URL?.trim();
+    if (internal) return internal.replace(/\/$/, "");
+  }
   const url = process.env.NEXT_PUBLIC_POCKETBASE_URL?.trim();
   if (!url) {
     throw new Error("NEXT_PUBLIC_POCKETBASE_URL is not set.");

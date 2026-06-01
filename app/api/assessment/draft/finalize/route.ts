@@ -112,10 +112,18 @@ export async function POST(req: Request) {
       },
     });
   } catch (e) {
-    if (!(e instanceof TranscriptionUnavailableError)) throw e;
+    if (!(e instanceof TranscriptionUnavailableError)) {
+      console.error("[assessment/finalize] runAnalysis failed:", e);
+      const msg = e instanceof Error ? e.message : "Analysis failed.";
+      return NextResponse.json({ error: msg, code: "analysis_failed" }, { status: 500 });
+    }
     if (fallbackTranscript.length < 1) {
       return NextResponse.json(
-        { error: e.message, code: "transcription_unavailable" },
+        {
+          error:
+            "Speech recognition is unavailable on the server right now. Re-record your segments in a quiet room, or try again in a few minutes.",
+          code: "transcription_unavailable",
+        },
         { status: 503 },
       );
     }

@@ -31,6 +31,7 @@ import {
 } from "@/lib/assessment/segments";
 import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
 import { parseFinalizePayload } from "@/lib/assessment/parse-baseline-payload";
+import { readJsonResponse } from "@/lib/api/read-json-response";
 import {
   AssessmentResultsSummary,
 } from "./assessment-results-summary";
@@ -122,8 +123,9 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
     setPhase("loading");
     try {
       const res = await fetch("/api/assessment/draft", { credentials: "include" });
+      const json = await readJsonResponse(res);
       if (!res.ok) throw new Error(`Could not load draft (${res.status})`);
-      const json = (await res.json()) as { completedKinds?: unknown };
+      const completedKinds = Array.isArray(json.completedKinds)
       const completedKinds = Array.isArray(json.completedKinds)
         ? (json.completedKinds.filter(
             (k) =>
@@ -228,7 +230,7 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
         body: form,
         credentials: "include",
       });
-      const json = (await res.json()) as Record<string, unknown>;
+      const json = await readJsonResponse(res);
       if (!res.ok) {
         throw new Error(typeof json.error === "string" ? json.error : `Save failed (${res.status})`);
       }
@@ -301,7 +303,7 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(goalId ? { goalId } : {}),
       });
-      const json = (await res.json()) as Record<string, unknown>;
+      const json = await readJsonResponse(res);
       if (!res.ok) {
         throw new Error(typeof json.error === "string" ? json.error : `Could not generate baseline (${res.status})`);
       }

@@ -43,7 +43,7 @@ podman run -d --name "$CONTAINER" \
   -e AURAVO_DB_DIR=/data \
   -e "OLLAMA_BASE_URL=$OLLAMA_BASE_URL" \
   -e OLLAMA_MODEL=qwen2.5:3b \
-  -e AURAVO_COACH_TIMEOUT_MS=120000 \
+  -e AURAVO_COACH_TIMEOUT_MS=180000 \
   -e TRANSCRIPTION_PROVIDER=faster-whisper \
   -e FASTER_WHISPER_MODEL=base \
   -e FASTER_WHISPER_PYTHON=/app/.venv-transcription/bin/python \

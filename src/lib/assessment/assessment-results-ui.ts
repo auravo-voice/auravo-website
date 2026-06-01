@@ -103,6 +103,8 @@ export type CoachSummaryShape = {
   strengths: string[];
   improvementAreas: string[];
   recommendationRationale?: string;
+  biggestIssue?: string | null;
+  strength?: string | null;
 };
 
 function labelForDimensionKey(key: string): string {
@@ -158,6 +160,14 @@ export function buildCoachPlanNarrative(
   coach: CoachSummaryShape | undefined,
   highlights: ReturnType<typeof executiveHighlights>,
 ): string {
+  if (coach?.biggestIssue && coach.biggestIssue.trim().length > 10) {
+    const parts = [coach.biggestIssue.trim()];
+    if (coach.strength?.trim()) parts.push(coach.strength.trim());
+    parts.push(
+      "Your daily practice will be tailored from this baseline so each session builds on what you need most.",
+    );
+    return parts.join(" ");
+  }
   if (coach?.summary && coach.summary.trim().length > 20) {
     const parts = [coach.summary.trim()];
     if (coach.strengths?.length) {

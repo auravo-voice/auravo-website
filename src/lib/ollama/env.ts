@@ -4,10 +4,10 @@ export function getOllamaBaseUrl(): string {
   return (process.env.OLLAMA_BASE_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
 }
 
-/** Default coach model; override with OLLAMA_MODEL (use qwen2.5:3b locally for speed). */
+/** Default coach model for transcript pattern analysis; override with OLLAMA_MODEL. */
 export function getOllamaModel(): string {
   const raw = process.env.OLLAMA_MODEL?.trim();
-  return raw && raw.length > 0 ? raw : "qwen2.5:3b";
+  return raw && raw.length > 0 ? raw : "gemma2:2b";
 }
 
 const COACH_TIMEOUT_MIN = 30_000;

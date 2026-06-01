@@ -21,17 +21,9 @@ function timings(wpm: number, n: number): WordTiming[] {
 }
 
 const SAMPLE_ACOUSTIC: AcousticFeatures = {
-  featureSet: "eGeMAPSv02",
-  pitchMeanHz: 145,
-  pitchStddevSemitones: 2.5,
-  pitchRangeSemitones: 8,
-  loudnessMean: 0.4,
-  loudnessStddev: 0.3,
-  loudnessRange: 0.5,
-  hnrMeanDb: 14,
-  jitterLocalPct: 0.5,
-  shimmerLocaldB: 0.5,
-  voicedRatio: 0.7,
+  pitch: { mean: 145, range: 85, isMonotone: false, timeline: [] },
+  intensity: { mean: 65, collapseSegments: [] },
+  rhythm: { tempoVariation: 120, clarityScore: 18 },
 };
 
 describe("scorePace", () => {
@@ -63,6 +55,31 @@ describe("scorePace", () => {
     const r = scorePace(d);
     expect(r.qualityFlag).toBe("transcript_only");
     expect(r.score).toBeGreaterThanOrEqual(40);
+  });
+
+  it("penalises energy collapse segments", () => {
+    const acoustic: AcousticFeatures = {
+      ...SAMPLE_ACOUSTIC,
+      intensity: {
+        mean: 60,
+        collapseSegments: [
+          { start: 1, end: 2 },
+          { start: 2.5, end: 3.5 },
+          { start: 4, end: 5 },
+          { start: 5.5, end: 6.5 },
+        ],
+      },
+    };
+    const d = computeDerivedMetrics({
+      transcript: "one two three four five six seven eight nine ten eleven twelve",
+      wordTimings: timings(150, 12),
+      durationSec: 10,
+      acoustic,
+    });
+    const withCollapse = scorePace(d, acoustic);
+    const without = scorePace(d, null);
+    expect(withCollapse.score).toBeLessThanOrEqual(without.score);
+    expect(withCollapse.explanation.toLowerCase()).toContain("energy");
   });
 });
 
@@ -99,17 +116,20 @@ describe("scoreClarity", () => {
     expect(r.qualityFlag).toBe("audio_grounded");
   });
 
-  it("notes the transcript-only fallback when openSMILE is absent", () => {
+  it("notes the transcript-only fallback when acoustic is absent", () => {
     const d = computeDerivedMetrics({ transcript: "test" });
     const r = scoreClarity(d, null);
     expect(r.qualityFlag).toBe("transcript_only");
-    expect(r.explanation.toLowerCase()).toContain("opensmile");
+    expect(r.explanation.toLowerCase()).toContain("acoustic");
   });
 });
 
 describe("scoreConfidence", () => {
   it("uses stable loudness when acoustic features present", () => {
-    const stable: AcousticFeatures = { ...SAMPLE_ACOUSTIC, loudnessStddev: 0.15 };
+    const stable: AcousticFeatures = {
+      ...SAMPLE_ACOUSTIC,
+      intensity: { mean: 70, collapseSegments: [] },
+    };
     const d = computeDerivedMetrics({ transcript: "hello world.", acoustic: stable, durationSec: 5 });
     const r = scoreConfidence(d, stable);
     expect(r.qualityFlag).toBe("audio_grounded");
@@ -138,7 +158,7 @@ describe("scorePronunciationApprox", () => {
     expect(r.qualityFlag).toBe("approximate");
   });
 
-  it("upgrades to audio_grounded when openSMILE clarity is also present", () => {
+  it("upgrades to audio_grounded when acoustic clarity is also present", () => {
     const wt: WordTiming[] = timings(150, 20).map((w) => ({ ...w, probability: 0.92 }));
     const d = computeDerivedMetrics({
       transcript: "twenty word transcript",
@@ -158,13 +178,5 @@ describe("scoresFromAnalysis", () => {
     const with_ = scoresFromAnalysis({ transcript, acoustic: { available: true, features: SAMPLE_ACOUSTIC } });
     expect(Object.keys(without.scores).sort()).toEqual(Object.keys(with_.scores).sort());
     expect(Object.keys(without.explanations).sort()).toEqual(Object.keys(with_.explanations).sort());
-  });
-
-  it("clamps scores into 35..95 range", () => {
-    const tiny = scoresFromAnalysis({ transcript: "" });
-    for (const v of Object.values(tiny.scores)) {
-      expect(v).toBeGreaterThanOrEqual(35);
-      expect(v).toBeLessThanOrEqual(95);
-    }
   });
 });

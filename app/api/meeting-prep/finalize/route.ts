@@ -27,7 +27,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * Finalize a meeting rehearsal. The learner's per-turn audio is concatenated and run through the
- * canonical {@link runAnalysis} pipeline (Whisper timings + openSMILE + VAD). On top we compute
+ * canonical {@link runAnalysis} pipeline (Whisper timings + acoustic + VAD). On top we compute
  * deterministic agenda alignment and a short coach note that combines the audio-grounded scores with
  * the conversation-shape metrics (response latency, turn balance, etc.).
  */

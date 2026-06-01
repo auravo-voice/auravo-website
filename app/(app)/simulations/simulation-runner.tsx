@@ -352,7 +352,7 @@ export function SimulationRunner({ init }: { init: RunnerScenarioInit }) {
         <CardHeader>
           <CardTitle className="text-2xl">Scoring your simulation…</CardTitle>
           <CardDescription>
-            Running Whisper, optional openSMILE + VAD, and the same six-dimensional scoring used everywhere in Auravo.
+            Running Whisper, optional acoustic analysis + VAD, and the same six-dimensional scoring used everywhere in Auravo.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

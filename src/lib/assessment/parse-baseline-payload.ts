@@ -1,6 +1,7 @@
 import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
-import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
+import type { AssessmentBaselinePayload, AssessmentCoachSummary } from "@/lib/assessment/baseline-results-payload";
 import type { RadarDimension } from "@/lib/coach/schemas";
+import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 
 export function parseBaselineAnalysis(o: unknown): BaselineAnalysis {
   if (!o || typeof o !== "object") return { grammarFlags: [], pronunciationTips: [] };
@@ -37,7 +38,36 @@ function parseVoiceExplanations(json: Record<string, unknown>): AssessmentBaseli
   return Object.keys(voiceExplanations).length > 0 ? voiceExplanations : undefined;
 }
 
-function parseCoachSummary(json: Record<string, unknown>): AssessmentBaselinePayload["coachSummary"] {
+function parsePatterns(raw: unknown): CoachingPattern[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((p) => {
+    if (!p || typeof p !== "object") return [];
+    const o = p as Record<string, unknown>;
+    if (
+      typeof o.pattern !== "string" ||
+      typeof o.evidence !== "string" ||
+      typeof o.impact !== "string" ||
+      typeof o.fix !== "string"
+    ) {
+      return [];
+    }
+    return [{ pattern: o.pattern, evidence: o.evidence, impact: o.impact, fix: o.fix }];
+  });
+}
+
+function parseAcousticPatterns(raw: unknown): AcousticCoachingPattern[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((p) => {
+    if (!p || typeof p !== "object") return [];
+    const o = p as Record<string, unknown>;
+    if (typeof o.pattern !== "string" || typeof o.timestamps !== "string" || typeof o.fix !== "string") {
+      return [];
+    }
+    return [{ pattern: o.pattern, timestamps: o.timestamps, fix: o.fix }];
+  });
+}
+
+function parseCoachSummary(json: Record<string, unknown>): AssessmentCoachSummary | undefined {
   const cs = json.coachSummary;
   if (!cs || typeof cs !== "object") return undefined;
   const o = cs as Record<string, unknown>;
@@ -48,8 +78,34 @@ function parseCoachSummary(json: Record<string, unknown>): AssessmentBaselinePay
     : [];
   const recommendationRationale =
     typeof o.recommendationRationale === "string" ? o.recommendationRationale : undefined;
-  if (!summary.trim() && strengths.length === 0 && improvementAreas.length === 0) return undefined;
-  return { summary, strengths, improvementAreas, recommendationRationale };
+  const biggestIssue =
+    typeof o.biggestIssue === "string"
+      ? o.biggestIssue
+      : typeof o.biggest_issue === "string"
+        ? o.biggest_issue
+        : null;
+  const strength = typeof o.strength === "string" ? o.strength : null;
+  const patterns = parsePatterns(o.patterns);
+  const acousticPatterns = parseAcousticPatterns(o.acousticPatterns ?? o.acoustic_patterns);
+  if (
+    !summary.trim() &&
+    strengths.length === 0 &&
+    improvementAreas.length === 0 &&
+    !biggestIssue &&
+    patterns.length === 0
+  ) {
+    return undefined;
+  }
+  return {
+    summary,
+    strengths,
+    improvementAreas,
+    recommendationRationale,
+    biggestIssue,
+    strength,
+    patterns,
+    acousticPatterns,
+  };
 }
 
 function parseRecommendedExercises(

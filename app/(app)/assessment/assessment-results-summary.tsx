@@ -10,6 +10,7 @@ import { SkillRadar } from "@/components/skill-radar";
 import type { RadarDimension } from "@/lib/coach/schemas";
 import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
 import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
+import { CoachInsightCards } from "@/components/coach-insight-cards";
 import {
   ASSESSMENT_DIMENSION_LABEL,
   buildClarityCheckpoints,
@@ -51,8 +52,10 @@ export function AssessmentResultsSummary({ results }: { results: AssessmentBasel
     [radarDims, results.coachSummary, highlights],
   );
   const firstFocus = React.useMemo(
-    () => firstTrainingFocusLine(highlights.opportunity, results.coachSummary?.improvementAreas),
-    [highlights.opportunity, results.coachSummary?.improvementAreas],
+    () =>
+      results.coachSummary?.biggestIssue?.trim() ||
+      firstTrainingFocusLine(highlights.opportunity, results.coachSummary?.improvementAreas),
+    [highlights.opportunity, results.coachSummary?.biggestIssue, results.coachSummary?.improvementAreas],
   );
   const clarityItems = React.useMemo(
     () => buildClarityCheckpoints(results.analysis.pronunciationTips),
@@ -119,6 +122,13 @@ export function AssessmentResultsSummary({ results }: { results: AssessmentBasel
           next full-length recording.
         </p>
       ) : null}
+
+      <CoachInsightCards
+        biggestIssue={results.coachSummary?.biggestIssue}
+        strength={results.coachSummary?.strength}
+        patterns={results.coachSummary?.patterns}
+        acousticPatterns={results.coachSummary?.acousticPatterns}
+      />
 
       <Card className="border-primary/15">
         <CardHeader>

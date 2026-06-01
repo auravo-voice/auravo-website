@@ -8,7 +8,7 @@ function transcriptionVenvRoot(): string {
 }
 
 /**
- * Python used to run `transcribe_faster_whisper.py`, `extract_opensmile.py`, and `extract_vad.py`.
+ * Python used to run `transcribe_faster_whisper.py`, `extract_acoustic.py`, and `extract_vad.py`.
  *
  * Resolution order:
  * 1. `FASTER_WHISPER_PYTHON` — always honored (set to your venv interpreter path)

@@ -159,3 +159,28 @@ export function countFillerWords(input: {
   const fromTranscript = countAtIndices(tokenizeTranscript(input.transcript));
   return Math.max(fromTimings, fromTranscript);
 }
+
+/** Most frequent filler-like tokens/phrases for coach prompts (up to `max`). */
+export function topFillerTokens(transcript: string, max = 5): string[] {
+  const lower = transcript.toLowerCase();
+  const counts = new Map<string, number>();
+
+  for (const phrase of FILLER_PHRASES) {
+    const text = phrase.join(" ");
+    const parts = lower.split(text);
+    const n = Math.max(0, parts.length - 1);
+    if (n > 0) counts.set(text, (counts.get(text) ?? 0) + n);
+  }
+
+  const tokens = tokenizeTranscript(transcript);
+  for (const t of tokens) {
+    if (isStandaloneFiller(t) || isStretchedFiller(t)) {
+      counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+  }
+
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, max)
+    .map(([k]) => k);
+}

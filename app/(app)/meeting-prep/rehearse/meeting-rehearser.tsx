@@ -319,7 +319,7 @@ export function MeetingRehearser({ init }: { init: RehearsalInit }) {
         <CardHeader>
           <CardTitle className="text-2xl">Scoring your rehearsal…</CardTitle>
           <CardDescription>
-            Whisper + optional openSMILE / VAD + agenda pass. Same six dimensions as practice and simulations.
+            Whisper + optional acoustic analysis / VAD + agenda pass. Same six dimensions as practice and simulations.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">

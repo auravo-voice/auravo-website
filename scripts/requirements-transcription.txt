@@ -1,13 +1,11 @@
-# Pin NumPy 1.x — torch 2.2 / faster-whisper break on NumPy 2.x (see server logs: "Numpy is not available").
+# Pin NumPy 1.x — torch 2.2 / faster-whisper break on NumPy 2.x.
 numpy>=1.26.0,<2
 faster-whisper>=1.0.0
-# Local acoustic features (BSD; bundles the openSMILE binary). Optional — the analysis pipeline
-# degrades gracefully when this package is missing.
-opensmile>=2.5.0
+# Acoustic analysis (Parselmouth/Praat + librosa; replaces openSMILE).
+praat-parselmouth>=0.4.4
+librosa>=0.10.0
 # Local Voice Activity Detection. We try silero-vad first (ML-grade), then webrtcvad (lightweight C).
-# Both are optional — if neither installs, the analysis falls back to timing-gap heuristics.
 silero-vad>=5.1.2; python_version < "3.14"
-# CPU wheels for aarch64/x86_64 (pulled by silero-vad).
 torch==2.2.2
 torchaudio==2.2.2
 webrtcvad-wheels>=2.0.14

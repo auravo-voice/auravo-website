@@ -32,7 +32,7 @@ def main() -> None:
     if not os.path.isfile(audio_path):
         sys.stderr.write(f"not a file: {audio_path}\n")
         sys.exit(3)
-    model_size = os.environ.get("FASTER_WHISPER_MODEL", "base").strip() or "base"
+    model_size = os.environ.get("FASTER_WHISPER_MODEL", "small").strip() or "small"
     try:
         from faster_whisper import WhisperModel
     except ImportError:

@@ -18,6 +18,10 @@ function minimalAnalysis(over: Partial<CanonicalAnalysis> = {}): CanonicalAnalys
     conversation: null,
     conversationCoachNotes: [],
     coachSummary: {
+      biggestIssue: "Sharpen the closing sentence so the ask is unmistakable.",
+      strength: "Steady pace in the middle third of the answer.",
+      patterns: [],
+      acousticPatterns: [],
       summary: "Good session overall with clear next steps for the learner to practice again tomorrow.",
       strengths: ["Steady pace in the middle third of the answer."],
       improvementAreas: ["Sharpen the closing sentence so the ask is unmistakable."],

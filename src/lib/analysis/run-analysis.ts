@@ -119,7 +119,7 @@ async function asAbsolute(relativeOrAbsolute: string): Promise<string> {
 }
 
 /**
- * Resolve the audio file to feed into Whisper/openSMILE/VAD. Concatenates with ffmpeg when the caller
+ * Resolve the audio file to feed into Whisper/acoustic/VAD. Concatenates with ffmpeg when the caller
  * supplies multiple inputs. Returns the absolute path plus a `cleanup` function which the orchestrator
  * runs in a `finally` after the heavy pipeline stages complete.
  */
@@ -163,7 +163,7 @@ async function resolveAudio(input: RunAnalysisInput["audio"]): Promise<{
  * `CanonicalAnalysis` payload (scores + explanations + key metrics + recommended next exercises).
  *
  * Pipeline order matches the layered architecture in the spec:
- *   audio → transcription ∥ VAD + openSMILE (parallel) → derive → score → recommend → coach summary.
+ *   audio → transcription ∥ VAD + acoustic (parallel) → derive → score → recommend → coach summary.
  *
  * Failure model: if real transcription is required but unavailable (faster-whisper down without
  * placeholder fallback enabled), this throws a {@link TranscriptionUnavailableError}; routes catch
@@ -173,7 +173,7 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
   const resolved = await resolveAudio(input.audio);
   const baselinePromise = getOnboardingBaselineForUser(input.context.userId);
 
-  // Stages 1–2: Whisper and openSMILE/VAD only read the audio file — run them in parallel to cut wall-clock time.
+  // Stages 1–2: Whisper and acoustic/VAD only read the audio file — run them in parallel to cut wall-clock time.
   let transcription: TranscriptionResult;
   let adapterName: string;
   let acoustic: AcousticResult;
@@ -269,17 +269,21 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     input.context.exerciseContext != null && input.context.runExerciseTaskReview !== false;
   const wantsCoachSummary = input.context.runCoachSummary !== false;
 
+  const coachInput = {
+    transcript: transcriptText,
+    analysis: voice,
+    acousticFeatures: acoustic.available ? acoustic.features : null,
+    candidateExercises,
+    learnerContext,
+    exerciseContext: input.context.exerciseContext ?? null,
+    taskReview: null as ExerciseTaskReviewResult | null,
+  };
+
   if (wantsTaskReview && wantsCoachSummary && input.context.exerciseContext) {
     const exercise = input.context.exerciseContext;
     const [taskReviewResult, coachSummaryResult] = await Promise.all([
       generateExerciseTaskReview({ exercise, transcript: transcriptText, voice }),
-      generateFinalCoachingSummary({
-        analysis: voice,
-        candidateExercises,
-        learnerContext,
-        exerciseContext: exercise,
-        taskReview: null,
-      }),
+      generateFinalCoachingSummary({ ...coachInput, exerciseContext: exercise }),
     ]);
     taskReview = taskReviewResult;
     coachSummary = coachSummaryResult;
@@ -293,6 +297,10 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     }
     if (!wantsCoachSummary) {
       coachSummary = {
+        biggestIssue: null,
+        strength: null,
+        patterns: [],
+        acousticPatterns: [],
         summary: "",
         strengths: [],
         improvementAreas: [],
@@ -304,10 +312,7 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
       };
     } else {
       coachSummary = await generateFinalCoachingSummary({
-        analysis: voice,
-        candidateExercises,
-        learnerContext,
-        exerciseContext: input.context.exerciseContext ?? null,
+        ...coachInput,
         taskReview,
       });
     }
@@ -367,6 +372,10 @@ export function serializeAnalysisForPersistence(analysis: CanonicalAnalysis): st
       bonusSignals: analysis.voice.bonusSignals,
     },
     coachSummary: {
+      biggestIssue: analysis.coachSummary.biggestIssue,
+      strength: analysis.coachSummary.strength,
+      patterns: analysis.coachSummary.patterns,
+      acousticPatterns: analysis.coachSummary.acousticPatterns,
       summary: analysis.coachSummary.summary,
       strengths: analysis.coachSummary.strengths,
       improvementAreas: analysis.coachSummary.improvementAreas,

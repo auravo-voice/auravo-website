@@ -530,7 +530,7 @@ export function ExerciseFeedback({
             <Info className="mt-0.5 size-3.5" />
             <span>
               Voice-quality features are unavailable on this recording ({va.acousticReason}). Install the optional
-              acoustic backend (<code className="font-mono">pip install opensmile</code>) for clarity / confidence
+              acoustic backend (<code className="font-mono">pip install praat-parselmouth librosa</code>) for clarity / confidence
               metrics.
             </span>
           </p>

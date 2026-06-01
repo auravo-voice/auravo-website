@@ -40,7 +40,7 @@ function plateauScore(value: number, innerLo: number, innerHi: number, outerLo: 
 // Each scorer is pure and returns a {score, explanation, qualityFlag} so the UI can render evidence.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function scorePace(d: DerivedMetrics): ScoreResult {
+export function scorePace(d: DerivedMetrics, acoustic: AcousticFeatures | null = null): ScoreResult {
   if (d.wpm == null) {
     // Fallback: estimate from sentence + word counts only. Less precise, marked accordingly.
     const proxy = d.avgWordsPerSentence > 0 ? Math.min(d.avgWordsPerSentence * 11, 200) : 130;
@@ -53,7 +53,11 @@ export function scorePace(d: DerivedMetrics): ScoreResult {
     };
   }
   const wpm = d.wpm;
-  const raw = plateauScore(wpm, TARGET_WPM_LOW, TARGET_WPM_HIGH, SOFT_WPM_LOW - 30, SOFT_WPM_HIGH + 40);
+  let raw = plateauScore(wpm, TARGET_WPM_LOW, TARGET_WPM_HIGH, SOFT_WPM_LOW - 30, SOFT_WPM_HIGH + 40);
+  const collapseN = acoustic?.intensity.collapseSegments.length ?? d.energyCollapseCount;
+  if (collapseN > 0) {
+    raw -= Math.min(25, collapseN * 8);
+  }
   let explanation: string;
   if (wpm < SOFT_WPM_LOW) {
     explanation = `You averaged ${Math.round(wpm)} WPM, which sits below the conversational sweet spot (${TARGET_WPM_LOW}–${TARGET_WPM_HIGH}). Aim for a touch quicker on the next pass.`;
@@ -65,7 +69,14 @@ export function scorePace(d: DerivedMetrics): ScoreResult {
     const dir = wpm < TARGET_WPM_LOW ? "slightly slow" : "slightly fast";
     explanation = `You averaged ${Math.round(wpm)} WPM — ${dir} of the ${TARGET_WPM_LOW}–${TARGET_WPM_HIGH} target.`;
   }
-  return { score: clamp(raw), explanation, qualityFlag: "audio_grounded" };
+  if (collapseN > 0) {
+    explanation += ` Voice energy dropped in ${collapseN} segment${collapseN === 1 ? "" : "s"}, which can make pacing feel uneven.`;
+  }
+  return {
+    score: clamp(raw),
+    explanation,
+    qualityFlag: collapseN > 0 || acoustic ? "audio_grounded" : "audio_grounded",
+  };
 }
 
 export function scoreFluency(d: DerivedMetrics): ScoreResult {
@@ -81,6 +92,7 @@ export function scoreFluency(d: DerivedMetrics): ScoreResult {
   if (d.repeatedWordCount > 0 || d.restartCount > 0) {
     runComponent -= Math.min(40, d.repeatedWordCount * 6 + d.restartCount * 10);
   }
+  runComponent -= Math.min(25, d.trailingCount * 5 + d.restateCount * 6);
   const raw = (runComponent + fillerComponent + pauseComponent) / 3;
   const explanationBits: string[] = [];
   if (d.fillerCount > 0) {
@@ -93,6 +105,12 @@ export function scoreFluency(d: DerivedMetrics): ScoreResult {
   }
   if (d.repeatedWordCount > 0 || d.restartCount > 0) {
     explanationBits.push(`${d.repeatedWordCount + d.restartCount} restart/repeat${d.repeatedWordCount + d.restartCount === 1 ? "" : "s"}`);
+  }
+  if (d.trailingCount > 0) {
+    explanationBits.push(`${d.trailingCount} trailing-off phrase${d.trailingCount === 1 ? "" : "s"}`);
+  }
+  if (d.restateCount > 0) {
+    explanationBits.push(`${d.restateCount} restatement${d.restateCount === 1 ? "" : "s"}`);
   }
   const explanation =
     explanationBits.length === 0
@@ -116,7 +134,7 @@ export function scoreClarity(d: DerivedMetrics, acoustic: AcousticFeatures | nul
     return {
       score: clamp(raw),
       explanation:
-        "Clarity is estimated from transcript confidence only because openSMILE was not available. Install the optional acoustic features for a richer signal.",
+        "Clarity is estimated from transcript confidence only because acoustic analysis was not available on this recording.",
       qualityFlag: "transcript_only",
     };
   }
@@ -126,13 +144,13 @@ export function scoreClarity(d: DerivedMetrics, acoustic: AcousticFeatures | nul
     raw -= Math.min(20, (d.lowConfidenceWordCount / d.wordCount) * 60);
   }
   const explanation =
-    acoustic.hnrMeanDb != null
-      ? `Voice quality measured at ${acoustic.hnrMeanDb.toFixed(1)} dB HNR${
+    d.clarityEstimate != null
+      ? `Voice clarity score ${(d.clarityEstimate * 100).toFixed(0)}% from spectral contrast${
           d.lowConfidenceWordCount != null
             ? `; ${d.lowConfidenceWordCount} word${d.lowConfidenceWordCount === 1 ? "" : "s"} fell below the ASR confidence threshold`
             : ""
         }.`
-      : "Clarity estimated from openSMILE voice-quality features.";
+      : "Clarity estimated from acoustic voice-quality features.";
   return { score: clamp(raw), explanation, qualityFlag: "audio_grounded" };
 }
 
@@ -143,7 +161,7 @@ export function scoreConfidence(d: DerivedMetrics, acoustic: AcousticFeatures | 
     return {
       score: clamp(raw),
       explanation:
-        "Confidence is a rough estimate (no acoustic features). Installing openSMILE adds volume stability and pitch variation to this score.",
+        "Confidence is a rough estimate (no acoustic features). Acoustic analysis adds volume stability and pitch variation to this score.",
       qualityFlag: "transcript_only",
     };
   }
@@ -229,9 +247,33 @@ export function scoreGrammar(d: DerivedMetrics, transcript: string): ScoreResult
 }
 
 export function scoreVocabulary(d: DerivedMetrics): ScoreResult {
-  // Lexical diversity, penalised by filler rate (fillers crowd out content words).
-  const raw = clamp(45 + d.lexicalDiversity * 85 - Math.min(d.fillerRatePerMin * 0.5, 10), 35, 92);
-  const explanation = `Lexical diversity was ${(d.lexicalDiversity * 100).toFixed(0)}% (${d.uniqueWordCount} unique of ${d.wordCount} words).`;
+  const raw = clamp(
+    45 + d.lexicalDiversity * 85 - Math.min(d.fillerRatePerMin * 0.5, 10) - Math.min(d.hedgeCount * 4, 20),
+    35,
+    92,
+  );
+  const hedgeNote =
+    d.hedgeCount > 0 ? ` Hedging phrases appeared ${d.hedgeCount} time${d.hedgeCount === 1 ? "" : "s"}.` : "";
+  const explanation = `Lexical diversity was ${(d.lexicalDiversity * 100).toFixed(0)}% (${d.uniqueWordCount} unique of ${d.wordCount} words).${hedgeNote}`;
+  return { score: clamp(raw), explanation, qualityFlag: "transcript_only" };
+}
+
+export function scoreFillerWords(d: DerivedMetrics): ScoreResult {
+  const hedgePenalty = Math.min(25, d.hedgeCount * 5);
+  const raw = clamp(100 - d.fillerRatePerMin * 8 - hedgePenalty, 0, 100);
+  const bits: string[] = [];
+  if (d.fillerCount > 0) {
+    bits.push(
+      `${d.fillerCount} classic filler${d.fillerCount === 1 ? "" : "s"} (${Math.round(d.fillerRatePerMin)}/min)`,
+    );
+  }
+  if (d.hedgeCount > 0) {
+    bits.push(`${d.hedgeCount} hedge phrase${d.hedgeCount === 1 ? "" : "s"}`);
+  }
+  const explanation =
+    bits.length === 0
+      ? "Zero filler words or hedge phrases detected — strong control."
+      : `Detected ${bits.join(" and ")}.`;
   return { score: clamp(raw), explanation, qualityFlag: "transcript_only" };
 }
 
@@ -281,7 +323,7 @@ export type VoiceAnalysis = {
 /**
  * The primary scoring entry point. Pure function over the analysis inputs — easy to test and
  * deterministic for a given set of metrics. Pass `acoustic.available === false` (or omit) when
- * openSMILE could not run; the scoring degrades gracefully.
+ * acoustic analysis could not run; the scoring degrades gracefully.
  */
 export function scoresFromAnalysis(input: {
   transcript: string;
@@ -304,20 +346,21 @@ export function scoresFromAnalysis(input: {
     vad: vadFeatures,
   });
 
-  const pace = scorePace(derived);
+  const pace = scorePace(derived, features);
   const fluency = scoreFluency(derived);
   const clarity = scoreClarity(derived, features);
   const confidence = scoreConfidence(derived, features);
   const pronunciation = scorePronunciationApprox(derived, features);
   const grammar = scoreGrammar(derived, input.transcript);
   const vocabulary = scoreVocabulary(derived);
+  const fillerWords = scoreFillerWords(derived);
 
   const scores: SixDimensionScores = {
     pronunciation: pronunciation.score,
     grammar: grammar.score,
     fluency: fluency.score,
     vocabulary: vocabulary.score,
-    filler_words: clamp(100 - derived.fillerRatePerMin * 8),
+    filler_words: fillerWords.score,
     pacing: pace.score,
   };
 
@@ -326,10 +369,7 @@ export function scoresFromAnalysis(input: {
     grammar: grammar.explanation,
     fluency: fluency.explanation,
     vocabulary: vocabulary.explanation,
-    filler_words:
-      derived.fillerCount === 0
-        ? "Zero filler words detected — strong control."
-        : `${derived.fillerCount} filler word${derived.fillerCount === 1 ? "" : "s"} (${Math.round(derived.fillerRatePerMin)} per minute).`,
+    filler_words: fillerWords.explanation,
     pacing: pace.explanation,
   };
 

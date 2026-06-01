@@ -1,6 +1,18 @@
 import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
 import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
 import type { RadarDimension } from "@/lib/coach/schemas";
+import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
+
+export type AssessmentCoachSummary = {
+  summary: string;
+  strengths: string[];
+  improvementAreas: string[];
+  recommendationRationale?: string;
+  biggestIssue?: string | null;
+  strength?: string | null;
+  patterns?: CoachingPattern[];
+  acousticPatterns?: AcousticCoachingPattern[];
+};
 
 export type AssessmentBaselinePayload = {
   userId: string;
@@ -11,12 +23,7 @@ export type AssessmentBaselinePayload = {
   goalLabel: string | null;
   analysis: BaselineAnalysis;
   voiceExplanations?: Partial<Record<DimensionKey, string>>;
-  coachSummary?: {
-    summary: string;
-    strengths: string[];
-    improvementAreas: string[];
-    recommendationRationale?: string;
-  };
+  coachSummary?: AssessmentCoachSummary;
   recommendedExercises?: { id: string; title: string; subtitle: string }[];
   degraded?: boolean;
 };

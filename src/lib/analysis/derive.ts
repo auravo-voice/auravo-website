@@ -1,7 +1,23 @@
 import type { WordTiming, SegmentTiming } from "@/lib/transcription/types";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
 import { deriveVadStats, type VadFeatures } from "@/lib/audio/vad";
-import { countFillerWords } from "@/lib/analysis/filler-words";
+import { countFillerWords, topFillerTokens } from "@/lib/analysis/filler-words";
+
+const HEDGE_PHRASES = [
+  "i think maybe",
+  "sort of",
+  "kind of",
+  "i guess",
+  "i suppose",
+  "probably",
+  "i'm not sure but",
+  "it might be",
+  "i feel like",
+] as const;
+
+const RESTATE_PHRASES = ["what i mean is", "basically", "in other words", "so what i'm saying"] as const;
+
+const TRAILING_PATTERN = /\b(right|you know|i mean|or something|i guess)[.?,]/gi;
 
 /** Pause = silence between adjacent words >= MIN_PAUSE_MS. Long pause = >= LONG_PAUSE_MS. */
 export const MIN_PAUSE_MS = 350;
@@ -32,15 +48,22 @@ export type DerivedMetrics = {
   longPauseCount: number | null;
   avgPauseMs: number | null;
   totalPauseMs: number | null;
-  /** Voiced ratio derived from word spans / total duration. Complementary to opensmile's voicedRatio. */
+  /** Voiced ratio derived from word spans / total duration. */
   speakingRatio: number | null;
 
-  // ── Acoustic (require openSMILE; null otherwise)
+  // ── Linguistic discourse markers
+  hedgeCount: number;
+  trailingCount: number;
+  restateCount: number;
+  topFillers: string[];
+
+  // ── Acoustic (Parselmouth + librosa; null otherwise)
   pitchVariation: number | null;
   loudnessStability: number | null;
   clarityEstimate: number | null;
   monotoneEstimate: number | null;
   energyEstimate: number | null;
+  energyCollapseCount: number;
 
   // ── VAD-grounded (overrides timing-gap pauses when available)
   vadProvider: "silero" | "webrtcvad" | null;
@@ -129,50 +152,42 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-/** Normalises eGeMAPS stddev/range numbers into a 0–1 "expressiveness" scalar. */
+function countPhraseOccurrences(text: string, phrases: readonly string[]): number {
+  const lower = text.toLowerCase();
+  return phrases.reduce((count, phrase) => count + Math.max(0, lower.split(phrase).length - 1), 0);
+}
+
+/** Pitch range in Hz → 0..1 expressiveness (50+ Hz ≈ expressive). */
 function pitchVariationFrom(features: AcousticFeatures): number | null {
-  const std = features.pitchStddevSemitones;
-  const range = features.pitchRangeSemitones;
-  if (std == null && range == null) return null;
-  const a = std == null ? 0 : clamp01(std / 4); // 4 semitones stddev ≈ very expressive
-  const b = range == null ? 0 : clamp01(range / 12); // an octave of range = maximum
-  if (std == null) return b;
-  if (range == null) return a;
-  return (a + b) / 2;
+  const range = features.pitch.range;
+  if (!Number.isFinite(range) || range <= 0) return null;
+  return clamp01(range / 120);
 }
 
-/** Lower variance → more stable loudness. Returns 0..1 where 1 = rock steady. */
+/** Fewer intensity collapses + steadier mean intensity → higher stability. */
 function loudnessStabilityFrom(features: AcousticFeatures): number | null {
-  const sd = features.loudnessStddev;
-  if (sd == null) return null;
-  // eGeMAPSv02 normalised stddev typically lands in 0.2–1.2 for human speech.
-  return clamp01(1 - sd / 1.2);
+  const collapses = features.intensity.collapseSegments.length;
+  const penalty = Math.min(1, collapses * 0.2);
+  const meanNorm = clamp01(features.intensity.mean / 80);
+  return clamp01(meanNorm * (1 - penalty));
 }
 
-/** Clarity proxy: HNR (higher = cleaner) and inverse shimmer (lower = cleaner). 0..1. */
+/** librosa spectral contrast mean, scaled to 0..1. */
 function clarityFrom(features: AcousticFeatures): number | null {
-  const hnr = features.hnrMeanDb;
-  const shimmer = features.shimmerLocaldB;
-  if (hnr == null && shimmer == null) return null;
-  const a = hnr == null ? 0 : clamp01((hnr + 5) / 25); // -5..20 dB → 0..1
-  const b = shimmer == null ? 0 : clamp01(1 - shimmer / 1.5); // 0..1.5 dB → 1..0
-  if (hnr == null) return b;
-  if (shimmer == null) return a;
-  return (a + b) / 2;
+  const score = features.rhythm.clarityScore;
+  if (!Number.isFinite(score)) return null;
+  return clamp01(score / 30);
 }
 
-/** Inverse of pitch variation. High monotone score = low expressiveness. */
 function monotoneFrom(features: AcousticFeatures): number | null {
+  if (features.pitch.isMonotone) return 1;
   const v = pitchVariationFrom(features);
   if (v == null) return null;
   return clamp01(1 - v);
 }
 
-/** Energy proxy: mean loudness, scaled. */
 function energyFrom(features: AcousticFeatures): number | null {
-  const v = features.loudnessMean;
-  if (v == null) return null;
-  return clamp01(v / 0.6); // eGeMAPS Zwicker loudness ~0..1 with healthy speech around 0.3–0.6
+  return clamp01(features.intensity.mean / 80);
 }
 
 /**
@@ -216,6 +231,10 @@ export function computeDerivedMetrics(input: {
   const fillerRatePerMin = safeMinutes && safeMinutes > 0 ? fillerCount / safeMinutes : fillerCount * 6; // assume ~10s if unknown
   const repeatedWordCount = countRepeatedWords(words);
   const restartCount = countRestarts(transcript);
+  const hedgeCount = countPhraseOccurrences(transcript, HEDGE_PHRASES);
+  const trailingCount = (transcript.match(TRAILING_PATTERN) ?? []).length;
+  const restateCount = countPhraseOccurrences(transcript, RESTATE_PHRASES);
+  const topFillers = topFillerTokens(transcript, 5);
 
   // ASR confidence (only meaningful when word timings carry probabilities).
   let lowConfidenceWordCount: number | null = null;
@@ -290,6 +309,10 @@ export function computeDerivedMetrics(input: {
     fillerRatePerMin,
     repeatedWordCount,
     restartCount,
+    hedgeCount,
+    trailingCount,
+    restateCount,
+    topFillers,
     lowConfidenceWordCount,
     meanWordConfidence,
     wpm,
@@ -304,6 +327,7 @@ export function computeDerivedMetrics(input: {
     clarityEstimate: ac ? clarityFrom(ac) : null,
     monotoneEstimate: ac ? monotoneFrom(ac) : null,
     energyEstimate: ac ? energyFrom(ac) : null,
+    energyCollapseCount: ac ? ac.intensity.collapseSegments.length : 0,
     vadProvider,
     preSpeechSilenceMs,
     longestPauseMs,

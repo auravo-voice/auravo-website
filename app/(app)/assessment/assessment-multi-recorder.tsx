@@ -126,7 +126,6 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
       const json = await readJsonResponse(res);
       if (!res.ok) throw new Error(`Could not load draft (${res.status})`);
       const completedKinds = Array.isArray(json.completedKinds)
-      const completedKinds = Array.isArray(json.completedKinds)
         ? (json.completedKinds.filter(
             (k) =>
               typeof k === "string" &&

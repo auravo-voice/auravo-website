@@ -15,7 +15,7 @@ export const APP_NAV = [
   { href: "/dashboard", label: "Home", icon: Home },
   { href: "/assessment", label: "Initial assessment", icon: ClipboardCheck },
   { href: "/learning-path", label: "Learning path", icon: Sparkles },
-  { href: "/wordle", label: "Wordle", icon: Keyboard },
+  { href: "/wordle", label: "Auravord", icon: Keyboard },
   { href: "/simulations", label: "Simulations", icon: MessageCircle },
   { href: "/observability", label: "Observability", icon: Activity },
   { href: "/progress", label: "Progress journal", icon: LineChart },

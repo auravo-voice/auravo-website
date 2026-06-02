@@ -1,5 +1,5 @@
 /**
- * Curated 5-letter vocabulary for Auravo Wordle — workplace communication, delivery, and leadership.
+ * Curated 5-letter vocabulary for Auravord — workplace communication, delivery, and leadership.
  * Daily solutions are drawn only from {@link WORDLE_SOLUTIONS}. Guesses accept standard English five-letter
  * words from `five-letter-allowlist.json` (derived from dwyl/english-words `words_alpha`) plus any solution.
  */

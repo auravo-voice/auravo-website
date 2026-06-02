@@ -30,6 +30,7 @@ import { resolveDraftSegmentAudio } from "@/lib/storage/audio-path";
 import { isPocketBaseStorage } from "@/lib/storage/env";
 import { getServerPocketBase } from "@/lib/pocketbase/server";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
+import { buildSegmentTranscriptRows } from "@/lib/assessment/segment-transcripts";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
 
 export const runtime = "nodejs";
@@ -182,12 +183,14 @@ export async function POST(req: Request) {
 
   const dimensions = scoresToRadarDimensions(analysis.scores);
   const averageScore = Math.round(dimensions.reduce((a, d) => a + d.score, 0) / dimensions.length);
+  const segmentTranscripts = buildSegmentTranscriptRows(orderedDrafts);
 
   const res = NextResponse.json({
     ok: true,
     userId,
     sessionId,
     transcript: analysis.transcript.slice(0, 12_000),
+    segmentTranscripts,
     dimensions,
     averageScore,
     goalLabel: goalId != null ? getOnboardingGoalLabel(goalId) ?? null : null,

@@ -80,6 +80,31 @@ export function attachDraftSegmentsToSession(userId: string, sessionId: string):
     .run();
 }
 
+/** Saved assessment segments for a finalized practice session. */
+export function listSessionSegments(sessionId: string): DraftSegmentRow[] {
+  const db = getDb();
+  const rows = db
+    .select({
+      segmentKind: baselineSegment.segmentKind,
+      audioRelativePath: baselineSegment.audioRelativePath,
+      durationMs: baselineSegment.durationMs,
+      transcript: baselineSegment.transcript,
+      createdAt: baselineSegment.createdAt,
+    })
+    .from(baselineSegment)
+    .where(eq(baselineSegment.sessionId, sessionId))
+    .all();
+  return rows
+    .filter(
+      (r): r is DraftSegmentRow =>
+        r.segmentKind === "passage" ||
+        r.segmentKind === "open_q1" ||
+        r.segmentKind === "open_q2" ||
+        r.segmentKind === "visual",
+    )
+    .map((r) => ({ ...r, segmentKind: r.segmentKind as AssessmentSegmentKind }));
+}
+
 /** Wipe any in-progress segments (e.g. learner taps "Start over"). */
 export function clearDraftSegments(userId: string): void {
   const db = getDb();

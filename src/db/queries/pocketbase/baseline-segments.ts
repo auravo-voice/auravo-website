@@ -91,6 +91,30 @@ export async function replaceDraftSegment(input: {
   }
 }
 
+export async function listSessionSegments(sessionId: string): Promise<DraftSegmentRow[]> {
+  const pb = await getServerPocketBase();
+  try {
+    const rows = await pb.collection(PB.baselineSegments).getFullList({
+      filter: `session = "${sessionId}"`,
+    });
+    return rows
+      .filter((r) => SEGMENT_KINDS.includes(r.segment_kind as AssessmentSegmentKind))
+      .map((r) => ({
+        segmentKind: r.segment_kind as AssessmentSegmentKind,
+        audioRelativePath: segmentAudioRef(r as { id: string; audio?: string }),
+        durationMs: typeof r.duration_ms === "number" ? r.duration_ms : null,
+        transcript: typeof r.transcript === "string" ? r.transcript : null,
+        createdAt: pbTs(r),
+      }));
+  } catch (error) {
+    if (isMissingPocketBaseCollection(error)) {
+      console.warn(`[baseline_segments] ${POCKETBASE_WEB_COLLECTIONS_HINT}`);
+      return [];
+    }
+    throw error;
+  }
+}
+
 export async function attachDraftSegmentsToSession(userId: string, sessionId: string): Promise<void> {
   const pb = await getServerPocketBase();
   try {

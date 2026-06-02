@@ -14,6 +14,8 @@ import { sessionTranscript } from "@/db/schema";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
 import { buildAssessmentPayloadFromPersisted } from "@/lib/assessment/parse-baseline-payload";
+import { buildSegmentTranscriptRows } from "@/lib/assessment/segment-transcripts";
+import { listSessionSegments } from "@/db/queries/baseline-segments";
 import { getOnboardingGoalLabel, isOnboardingGoalId } from "@/lib/coach/dashboard";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import { isPocketBaseStorage } from "@/lib/storage/env";
@@ -77,10 +79,14 @@ async function loadBaselineResultsForUserUncached(
     : undefined;
   const goalLabel = getOnboardingGoalLabel(storedGoalId) ?? null;
 
+  const segmentRows = await listSessionSegments(bundle.sessionId);
+  const segmentTranscripts = buildSegmentTranscriptRows(segmentRows);
+
   return buildAssessmentPayloadFromPersisted({
     userId: bundle.user.id,
     sessionId: bundle.sessionId,
     transcript,
+    segmentTranscripts,
     dimensions,
     goalLabel,
     analysisJson,

@@ -220,7 +220,7 @@ export function WordleGame() {
   const shareText = React.useMemo(() => {
     if (status === "playing") return "";
     const lines = rows.map((r) => shareEmojiLine(r.evaluation));
-    return `Auravo Wordle #${puzzleNumber}\n${lines.join("\n")}\n${status === "won" ? `Solved in ${rows.length} tries` : "Better luck tomorrow"}`;
+    return `Auravord #${puzzleNumber}\n${lines.join("\n")}\n${status === "won" ? `Solved in ${rows.length} tries` : "Better luck tomorrow"}`;
   }, [rows, status, puzzleNumber]);
 
   const copyShare = React.useCallback(async () => {
@@ -246,7 +246,7 @@ export function WordleGame() {
         </Button>
         <div>
           <p className="text-xs font-semibold uppercase tracking-wide text-primary">Daily vocabulary</p>
-          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Auravo Wordle</h1>
+          <h1 className="font-display text-2xl font-semibold tracking-tight sm:text-3xl">Auravord</h1>
           <p className="text-sm text-muted-foreground">Train your communication vocabulary · #{puzzleNumber}</p>
         </div>
       </div>

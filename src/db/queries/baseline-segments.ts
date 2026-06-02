@@ -9,6 +9,7 @@ const impl = isPocketBaseStorage() ? pocketbase : sqlite;
 export type DraftSegmentRow = sqlite.DraftSegmentRow;
 
 export const listDraftSegments = impl.listDraftSegments;
+export const listSessionSegments = impl.listSessionSegments;
 export const replaceDraftSegment = impl.replaceDraftSegment;
 export const attachDraftSegmentsToSession = impl.attachDraftSegmentsToSession;
 export const clearDraftSegments = impl.clearDraftSegments;

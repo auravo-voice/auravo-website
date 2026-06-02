@@ -1,5 +1,6 @@
 import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
 import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
+import type { SegmentTranscriptRow } from "@/lib/assessment/segment-transcripts";
 import type { RadarDimension } from "@/lib/coach/schemas";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 
@@ -18,6 +19,8 @@ export type AssessmentBaselinePayload = {
   userId: string;
   sessionId: string;
   transcript: string;
+  /** Per-segment transcripts when available (assessment results UI). */
+  segmentTranscripts?: SegmentTranscriptRow[];
   dimensions: RadarDimension[];
   averageScore: number;
   goalLabel: string | null;

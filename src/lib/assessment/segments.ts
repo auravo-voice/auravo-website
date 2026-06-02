@@ -2,6 +2,10 @@
 export const ASSESSMENT_SEGMENT_KINDS = ["passage", "open_q1", "open_q2", "visual"] as const;
 export type AssessmentSegmentKind = (typeof ASSESSMENT_SEGMENT_KINDS)[number];
 
+/** Learner-generated responses shown in results (excludes read-aloud passage). */
+export const ASSESSMENT_RESPONSE_SEGMENT_KINDS = ["open_q1", "open_q2", "visual"] as const;
+export type AssessmentResponseSegmentKind = (typeof ASSESSMENT_RESPONSE_SEGMENT_KINDS)[number];
+
 export function isAssessmentSegmentKind(v: unknown): v is AssessmentSegmentKind {
   return typeof v === "string" && (ASSESSMENT_SEGMENT_KINDS as readonly string[]).includes(v);
 }

@@ -315,13 +315,13 @@ async function DashboardCoachContent({
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">Quick win</p>
             <p className="font-display text-lg font-semibold">Try today&apos;s vocabulary challenge</p>
             <p className="text-sm text-muted-foreground">
-              Auravo Wordle — same five-letter answer for everyone each day. Type any valid English word to guess.
+              Auravord — same five-letter answer for everyone each day. Type any valid English word to guess.
             </p>
           </div>
           <Button variant="outline" className="shrink-0 gap-2 sm:min-w-[11rem]" asChild>
             <Link href="/wordle">
               <Keyboard className="size-4" />
-              Open Wordle
+              Open Auravord
             </Link>
           </Button>
         </CardContent>

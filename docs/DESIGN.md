@@ -1,203 +1,331 @@
-# Auravo Web — Design Document
+# Auravo Web — End-to-End Design Document
 
-## 1. Purpose
+## 1) Purpose and scope
 
-**auravo-web** is the browser-based client for Auravo: voice coaching for professional English (interviews, meetings, presentations, daily practice). It shares **accounts and data** with the Auravo mobile app via **PocketBase** at `https://pb.auravo.ai`.
+`auravo-web` is the production web client for Auravo voice coaching. It supports:
 
-This document describes architecture and design decisions. For setup steps see [INSTALLATION.md](./INSTALLATION.md).
+- onboarding assessment (4-segment baseline),
+- daily practice with task-level review,
+- simulation conversations,
+- meeting-prep planning and rehearsal,
+- progress dashboard/journal,
+- vocabulary mini-game (`/wordle`, branded in UI as **Auravord**).
+
+This document describes the current architecture, runtime behavior, data flows, deployment model, and operational tradeoffs.
+
+For setup/runbook details see [INSTALLATION.md](./INSTALLATION.md) and [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
 
 ---
 
-## 2. System context
+## 2) Design goals
+
+- **Single canonical analysis pipeline** for all speaking flows.
+- **Predictable coaching output** via structured JSON + schema validation.
+- **Graceful degradation** when external AI/transcription dependencies fail.
+- **Portable storage** (SQLite or PocketBase-backed query adapters).
+- **Production reliability** on self-hosted Hetzner (Podman) and cloud environments.
+- **Fast rebuilds** for Python speech stack via layered image caching.
+
+---
+
+## 3) System context
 
 ```mermaid
-flowchart TB
-  subgraph client [Browser]
-    UI[Next.js React UI]
-  end
-
-  subgraph app_host [App host - Vercel or container]
-    Next[Next.js 16 App Router]
-    API[API Routes - Node runtime]
-    TMP["/tmp/auravo-audio"]
-  end
-
-  subgraph backend [Hetzner / private network]
-    PB[(PocketBase pb.auravo.ai)]
-    Ollama[Ollama LLM]
-    Whisper[faster-whisper + ffmpeg]
-  end
-
-  UI --> Next
-  Next --> API
-  API --> PB
-  API --> TMP
-  API --> Whisper
-  API --> Ollama
-  Whisper --> TMP
-  API -->|upload files + records| PB
+flowchart LR
+  Browser[Browser / Next UI] --> NextApp[Next.js 16 App Router]
+  NextApp --> APIRoutes[API Routes (Node runtime)]
+  APIRoutes --> AuthPB[PocketBase auth/API]
+  APIRoutes --> Storage[(SQLite or PocketBase-backed data)]
+  APIRoutes --> Tmp[/tmp/auravo-audio]
+  APIRoutes --> Whisper[faster-whisper + ffmpeg + Python]
+  APIRoutes --> Acoustic[Parselmouth + librosa + VAD]
+  APIRoutes --> Groq[Groq chat completions API]
 ```
 
 ### Hostname roles
 
 | Host | Role |
-|------|------|
-| `auravo.ai` | Marketing / landing (often Vercel) |
-| `app.auravo.ai` / `auravo-web.auravo.ai` | Full product (this repo) |
-| `pb.auravo.ai` | PocketBase API + admin (not end-user UI) |
+|---|---|
+| `auravo.ai` / `www.auravo.ai` | Public web entrypoint |
+| `app.auravo.ai` / `auravo-web.auravo.ai` | App host (deployment-dependent) |
+| `pb.auravo.ai` | PocketBase API/admin host |
 
 ---
 
-## 3. Technology stack
+## 4) Technology stack
 
 | Layer | Choice |
-|-------|--------|
-| Framework | Next.js 16 (App Router, React 19) |
+|---|---|
+| Web framework | Next.js 16 (App Router), React 19 |
 | Language | TypeScript |
-| Styling | Tailwind CSS 4, Radix UI primitives |
-| Auth & database | PocketBase (`users` + app collections) |
-| Coach LLM | Ollama (HTTP, server-side only) |
-| Transcription | Python faster-whisper (subprocess), ffmpeg |
+| Styling/UI | Tailwind CSS, Radix UI primitives |
 | Validation | Zod |
+| Speech transcription | `faster-whisper` (Python subprocess), `ffmpeg` |
+| Acoustic analysis | `praat-parselmouth`, `librosa`, VAD |
+| Coaching LLM | Groq OpenAI-compatible chat completions |
+| Data backend | Storage adapter (`sqlite` or `pocketbase`) |
+| Auth | PocketBase auth (`pb_auth`) |
 | Tests | Vitest |
-
-**Removed (legacy):** local SQLite (`better-sqlite3`), anonymous `auravo_user_id` cookie minting, `./data` persistence on the app server.
 
 ---
 
-## 4. Application structure
+## 5) Repository architecture
 
-```
+```text
 app/
-  page.tsx              # Public landing
-  login/, signup/       # PocketBase auth
-  (app)/                # Authenticated shell (AppChrome)
-    dashboard/
+  (app)/
     assessment/
+    dashboard/
     practice/
     simulations/
     meeting-prep/
     progress/
-    settings/
     wordle/
-  api/                  # Server routes (multipart, analysis, auth)
+  api/                         # Route handlers (auth, analysis, practice, simulations)
 src/
-  lib/pocketbase/       # Client + server PB helpers
-  lib/analysis/         # Canonical runAnalysis pipeline
-  lib/coach/            # Ollama + fallbacks
-  lib/transcription/    # Whisper / placeholder
-  db/queries/           # PocketBase data access
-  components/           # UI
-middleware.ts           # Auth gate → /login
+  lib/analysis/                # Canonical runAnalysis orchestration
+  lib/coach/                   # Coach generation + deterministic fallbacks
+  lib/groq/                    # Groq env + structured chat client
+  lib/assessment/              # Baseline payload parsing, segment transcript shaping
+  lib/transcription/           # Adapter layer for speech-to-text
+  lib/storage/                 # Storage env and path resolution
+  db/queries/                  # Backend-agnostic query façade + implementations
+  components/                  # Shared UI
+scripts/
+  deploy-hetzner.sh            # Production deploy script (Podman)
+Containerfile                  # App image build including Python speech toolchain
 ```
 
-### Protected routes
+---
 
-Middleware checks the `pb_auth` cookie. Unauthenticated users hitting `/dashboard`, `/assessment`, `/practice`, etc. are redirected to `/login?redirect=...`.
+## 6) Runtime configuration
+
+### Core environment variables
+
+- `AURAVO_STORAGE=sqlite|pocketbase`  
+  Selects persistence query backend (`sqlite` default).
+- `NEXT_PUBLIC_POCKETBASE_URL`  
+  Browser-facing PocketBase URL (also signals PB auth availability).
+- `POCKETBASE_URL`  
+  Server-side PocketBase URL for route handlers.
+- `GROQ_API_KEY`, `GROQ_MODEL`  
+  Coaching provider and model (`llama-3.1-8b-instant` default).
+- `AURAVO_COACH_TIMEOUT_MS`  
+  Timeout budget used by Groq coach paths.
+- `TRANSCRIPTION_PROVIDER`, `FASTER_WHISPER_MODEL`, `FASTER_WHISPER_PYTHON`  
+  Speech stack selection and execution path.
+
+### Storage mode strategy
+
+- **SQLite mode**: local persistence for app session artifacts (common on Hetzner container deployment).
+- **PocketBase mode**: app data read/write via PocketBase query implementation.
+- Auth can still be PocketBase while data storage backend differs.
 
 ---
 
-## 5. Authentication design
+## 7) Authentication and authorization
 
-- **Collection:** existing PocketBase `users` (shared with mobile). No second users table.
-- **Email/password:** `POST /api/auth/login`, `POST /api/auth/signup` → `pb_auth` httpOnly cookie.
-- **Google OAuth2:** `/api/auth/oauth2/start` → Google → `/api/auth/oauth2/callback` → cookie.
-- **Display name:** from `display_name`, `name`, or email local-part (see `getAuthUserDisplayName`).
+- Auth uses PocketBase users and `pb_auth` cookie.
+- Supported flows:
+  - email/password sign-in and sign-up,
+  - Google OAuth2 redirect flow.
+- Protected API routes and app surfaces resolve user identity via server auth helpers.
+- Domain-aware cookie settings are used for production hosts.
 
-Logout clears `pb_auth` via `POST /api/auth/logout`.
-
----
-
-## 6. Data model (PocketBase)
-
-All durable state lives in PocketBase. See [POCKETBASE.md](./POCKETBASE.md) for collection schemas and CORS.
-
-| Collection | Purpose |
-|------------|---------|
-| `users` | Auth + profile (`display_name`, `onboarding_goal_id`) |
-| `practice_sessions` | Session metadata + `audio` file |
-| `session_scores` | Six dimension scores per session |
-| `session_transcripts` | Transcript + `analysis_json` |
-| `onboarding_baselines` | User → baseline session link |
-| `baseline_segments` | Multi-part assessment drafts |
-| `simulation_turns` | Per-turn simulation audio/text |
-| `baseline_handoffs` | One-shot post-assessment cookie handoff |
-
-**API rules:** rows scoped to `@request.auth.id` (or relation to user).
+No sensitive inference calls are executed client-side; Groq calls are server-only.
 
 ---
 
-## 7. Audio and analysis pipeline
+## 8) Canonical analysis pipeline
 
-1. Browser uploads audio (multipart) to an API route.
-2. Server writes blob to **`/tmp/auravo-audio/{id}.webm`** (ephemeral).
-3. **`runAnalysis`** runs: transcription → scoring → optional Ollama coach summary.
-4. Results + audio file uploaded to PocketBase.
-5. Temp files are not the source of truth; replay uses PocketBase file URLs.
+`runAnalysis()` in `src/lib/analysis/run-analysis.ts` is the central orchestrator used by assessment, practice, simulations, and meeting-prep finalization.
 
-This design supports **Vercel serverless** (no local disk DB) and **containers** (same temp pattern).
+### Pipeline stages
 
----
+1. **Input resolution**
+   - Single audio or concatenated multi-part audio.
+   - Optional pre-transcribed fallback path.
+2. **Parallel heavy stage**
+   - transcription (faster-whisper),
+   - acoustic extraction (Parselmouth + librosa),
+   - VAD extraction.
+3. **Deterministic scoring stage**
+   - derived speech metrics,
+   - six-dimension score computation,
+   - transcript-deep flags.
+4. **Context stage**
+   - optional conversation metrics (simulation/meeting rehearsal).
+5. **Recommendation stage**
+   - candidate exercise selection from week plan.
+6. **Coach stage**
+   - final coaching summary (Groq, with deterministic fallback behavior),
+   - optional exercise task review (Groq).
+7. **Persistence shaping**
+   - canonical JSON serialized into session transcript analysis payload.
 
-## 8. Coach / LLM behavior
+### Output contract
 
-- **Primary:** Ollama at `OLLAMA_BASE_URL` (default `http://127.0.0.1:11434`), model `OLLAMA_MODEL` (default `qwen2.5:3b`).
-- **Fallback:** deterministic copy in `src/lib/coach/fallbacks.ts` when Ollama is down or times out.
-- **Timeout:** `AURAVO_COACH_TIMEOUT_MS` (default 120s).
-
-Ollama is **not** embedded in PocketBase; it must be reachable from wherever API routes execute.
-
----
-
-## 9. Deployment topologies
-
-### A. Vercel (frontend + serverless API)
-
-- **Good for:** UI, auth, PocketBase CRUD.
-- **Limitation:** No long-lived local disk; transcription/Ollama need external URLs or accept placeholder transcription.
-- **Build:** `npm ci` + `npm run build`; commit synced `package-lock.json`.
-- **Deploy hygiene:** if Vercel reports `npm ci` lockfile mismatch for an unchanged commit, redeploy with build cache disabled once.
-
-### B. Container on Debian (Podman/Docker) + nginx + Cloudflare
-
-- **Good for:** Full stack on one VPS (with PocketBase + Ollama + Whisper on same or linked hosts).
-- **Pattern:** `auravo-web` container `127.0.0.1:3001→3000`, nginx `router` proxies `auravo-web.auravo.ai` → upstream.
-
-### C. Split (recommended production)
-
-| Service | Host |
-|---------|------|
-| Next app | Vercel or `app.auravo.ai` |
-| PocketBase | `pb.auravo.ai` (Hetzner) |
-| Ollama + Whisper | Hetzner private IP / same VPS |
+`CanonicalAnalysis` includes transcript, model metadata, six scores, explanation bundle, coach summary, optional task review, optional conversation metrics, and candidate exercises.
 
 ---
 
-## 10. Security notes
+## 9) Groq-first coaching architecture
 
-- `NEXT_PUBLIC_*` vars are exposed to the browser; only put non-secrets there (e.g. PocketBase public URL).
-- PocketBase admin must configure **allowed origins** for every app hostname.
-- Google OAuth redirect URIs must match each deployment host (`/api/auth/oauth2/callback`).
-- API routes use `requireApiUserId()`; no anonymous session minting.
+### Shared client
+
+- `src/lib/groq/chat-json.ts` exposes structured chat with:
+  - JSON extraction,
+  - schema validation (Zod),
+  - timeout and network error handling,
+  - typed message contract.
+
+### Features now routed to Groq
+
+- transcript coaching summaries,
+- dashboard narrative,
+- task review,
+- scenarios generation,
+- progress journal synthesis,
+- simulation turn coach and custom scenario generation,
+- meeting-prep plan and rehearsal turn coach.
+
+### Failure behavior
+
+- If Groq fails/timeout occurs, user-facing routes return deterministic fallback content where defined.
+- Warnings are surfaced through coach serve result wrappers without breaking primary user flow.
 
 ---
 
-## 11. Key user flows
+## 10) Assessment architecture (multi-segment baseline)
 
-| Flow | Entry | Persistence |
-|------|-------|-------------|
-| Sign in | `/login` | `pb_auth` |
-| Initial assessment | `/assessment` | `baseline_segments` → finalize → `practice_sessions` |
-| Daily practice | `/practice/today` | `practice_sessions` + scores/transcript |
-| Simulation | `/simulations` | `simulation_turns`, draft → finalize |
-| Meeting prep | `/meeting-prep` | Same session model |
-| Progress | `/progress` | Read-only aggregates from PB |
-| Wordle | `/wordle` | Client-side / optional PB (no heavy audio) |
+### Segment model
+
+Assessment captures 4 segments in fixed order:
+
+1. `passage` (read-aloud),
+2. `open_q1`,
+3. `open_q2`,
+4. `visual`.
+
+Draft uploads are stored per segment; finalize verifies completeness, resolves audio, and executes canonical analysis.
+
+### Finalize behavior
+
+- Concatenates segment audio for highest-quality full-pass analysis.
+- If transcription infra is unavailable, degrades to concatenated pre-transcribed segment text (if available).
+- Persists practice session, transcript, scores, and serialized analysis metadata.
+
+### Results rendering detail
+
+Assessment results now support per-segment transcript display:
+
+- UI section **“What you said”** presents the learner-generated response segments as separate blocks:
+  - `open_q1`,
+  - `open_q2`,
+  - `visual`.
+- The read-aloud passage is intentionally excluded from these response blocks.
+- For older records without per-segment rows, UI falls back to combined transcript text.
 
 ---
 
-## 12. Related documents
+## 11) Data model and persistence contracts
+
+Primary entities (logical model):
+
+- **Users**: auth profile and onboarding goal.
+- **Practice sessions**: top-level speaking session records.
+- **Session transcripts**: text + serialized analysis JSON.
+- **Session scores**: six-dimension numeric scores.
+- **Onboarding baseline link**: user’s selected baseline session.
+- **Baseline segments**: draft/final segment-level assessment rows.
+- **Simulation turns**: turn-level simulation artifacts.
+
+Key design choice: route handlers consume query façade modules in `src/db/queries/*`, so storage backend can switch with minimal feature-level changes.
+
+---
+
+## 12) API surface overview
+
+Representative route groups:
+
+- `app/api/auth/*` — login, signup, oauth start/callback, logout.
+- `app/api/assessment/draft/*` — segment upload + baseline finalize.
+- `app/api/practice/*` — daily practice lifecycle.
+- `app/api/simulations/*` — start/turn/finalize and custom scenario.
+- `app/api/meeting-prep/*` — plan/start/turn/finalize.
+- `app/api/coach/scenarios` and related serving endpoints.
+
+Route handlers are thin orchestrators: validate input, enforce auth, call core services, return typed JSON.
+
+---
+
+## 13) Deployment architecture (Hetzner reference)
+
+### Runtime pattern
+
+- Podman container `auravo-web` bound to `127.0.0.1:3001`.
+- Reverse proxy routes public traffic to app container.
+- App joins internal network for service-to-service communication.
+- Secrets loaded from `/opt/auravo-web/.env.production.local`.
+
+### Build strategy
+
+`Containerfile` builds Node app plus Python speech environment in-layer.
+
+Important optimization:
+
+- Parselmouth wheel is built once into `/wheels` and then installed from wheel cache in subsequent builds (when requirements layer cache is valid).
+
+This significantly reduces rebuild time on ARM64 hosts.
+
+---
+
+## 14) Reliability, degradation, and performance
+
+### Reliability patterns
+
+- Deterministic fallback content for coach-dependent features.
+- Explicit timeout and error typing for external model calls.
+- Segment draft model allows resume/re-record without losing progress.
+- Canonical analysis serialization keeps downstream UI stable.
+
+### Performance patterns
+
+- Parallelization of transcription/acoustic/VAD.
+- Input fingerprinting for feature pipeline cache opportunities.
+- Separation of heavy Python toolchain into cacheable image layers.
+- Scoped unstable/cache usage on selected read endpoints.
+
+---
+
+## 15) Security and compliance notes
+
+- `NEXT_PUBLIC_*` variables are non-secret only.
+- `GROQ_API_KEY` must remain server-side; rotate immediately if exposed.
+- OAuth redirect URIs and PocketBase allowed origins must match active hosts.
+- User-scoped data access is enforced through auth-aware query/routing layers.
+
+---
+
+## 16) Current naming/UI conventions
+
+- Vocabulary game route remains `/wordle` for compatibility.
+- User-facing brand label is **Auravord** in navigation and game UI.
+
+---
+
+## 17) Open risks and future evolution
+
+- Large-model dependency on external Groq availability can still increase latency under provider/network stress.
+- Long-running audio analysis remains CPU-heavy; horizontal scaling requires queue/worker strategy if throughput grows.
+- Additional schema versioning for persisted `analysis_json` may be warranted as features expand.
+
+---
+
+## 18) Related documents
 
 - [INSTALLATION.md](./INSTALLATION.md)
 - [POCKETBASE.md](./POCKETBASE.md)
 - [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
+- [FAQ.md](./FAQ.md)
+- [KNOWN_ISSUES.md](./KNOWN_ISSUES.md)

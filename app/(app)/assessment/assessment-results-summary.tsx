@@ -11,6 +11,7 @@ import type { RadarDimension } from "@/lib/coach/schemas";
 import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
 import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
 import { CoachInsightCards } from "@/components/coach-insight-cards";
+import { ASSESSMENT_RESPONSE_SEGMENT_KINDS } from "@/lib/assessment/segments";
 import {
   ASSESSMENT_DIMENSION_LABEL,
   buildClarityCheckpoints,
@@ -60,6 +61,13 @@ export function AssessmentResultsSummary({ results }: { results: AssessmentBasel
   const clarityItems = React.useMemo(
     () => buildClarityCheckpoints(results.analysis.pronunciationTips),
     [results.analysis.pronunciationTips],
+  );
+  const spokenSegmentTranscripts = React.useMemo(
+    () =>
+      results.segmentTranscripts?.filter((seg) =>
+        (ASSESSMENT_RESPONSE_SEGMENT_KINDS as readonly string[]).includes(seg.kind),
+      ) ?? [],
+    [results.segmentTranscripts],
   );
 
   return (
@@ -252,16 +260,31 @@ export function AssessmentResultsSummary({ results }: { results: AssessmentBasel
         </CardContent>
       </Card>
 
-      {results.transcript.trim() ? (
+      {results.transcript.trim() || spokenSegmentTranscripts.length > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">What you said</CardTitle>
             <CardDescription>The response we used for this assessment.</CardDescription>
           </CardHeader>
-          <CardContent>
-            <p className="whitespace-pre-wrap rounded-xl border border-border/70 bg-muted/20 p-4 text-sm leading-relaxed text-muted-foreground">
-              {results.transcript}
-            </p>
+          <CardContent className="space-y-4">
+            {spokenSegmentTranscripts.length > 0 ? (
+              spokenSegmentTranscripts.map((seg) => (
+                <div
+                  key={seg.kind}
+                  className="rounded-xl border border-border/70 bg-muted/20 p-4"
+                >
+                  <p className="text-sm font-medium text-foreground">{seg.title}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{seg.label}</p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
+                    {seg.transcript}
+                  </p>
+                </div>
+              ))
+            ) : (
+              <p className="whitespace-pre-wrap rounded-xl border border-border/70 bg-muted/20 p-4 text-sm leading-relaxed text-muted-foreground">
+                {results.transcript}
+              </p>
+            )}
           </CardContent>
         </Card>
       ) : null}

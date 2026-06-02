@@ -1,5 +1,11 @@
 import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
 import type { AssessmentBaselinePayload, AssessmentCoachSummary } from "@/lib/assessment/baseline-results-payload";
+import type { SegmentTranscriptRow } from "@/lib/assessment/segment-transcripts";
+import {
+  ASSESSMENT_SEGMENT_KINDS,
+  isAssessmentSegmentKind,
+  segmentDisplayLabel,
+} from "@/lib/assessment/segments";
 import type { RadarDimension } from "@/lib/coach/schemas";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 
@@ -135,6 +141,31 @@ function parseDimensions(dimsRaw: unknown): RadarDimension[] | null {
   return dimensions;
 }
 
+function parseSegmentTranscripts(raw: unknown): SegmentTranscriptRow[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const rows: SegmentTranscriptRow[] = [];
+  for (const el of raw) {
+    if (!el || typeof el !== "object") continue;
+    const o = el as Record<string, unknown>;
+    if (!isAssessmentSegmentKind(o.kind) || typeof o.transcript !== "string") continue;
+    const transcript = o.transcript.trim();
+    if (!transcript) continue;
+    const title = typeof o.title === "string" && o.title.trim() ? o.title.trim() : undefined;
+    const label =
+      typeof o.label === "string" && o.label.trim() ? o.label.trim() : segmentDisplayLabel(o.kind);
+    rows.push({
+      kind: o.kind,
+      label,
+      title: title ?? label,
+      transcript,
+    });
+  }
+  if (rows.length === 0) return undefined;
+  const order = new Map(ASSESSMENT_SEGMENT_KINDS.map((k, i) => [k, i]));
+  rows.sort((a, b) => (order.get(a.kind) ?? 0) - (order.get(b.kind) ?? 0));
+  return rows;
+}
+
 /** Parse the JSON body from POST /api/assessment/draft/finalize (client-side handoff). */
 export function parseFinalizePayload(json: Record<string, unknown>): AssessmentBaselinePayload | null {
   if (typeof json.userId !== "string" || typeof json.sessionId !== "string") return null;
@@ -145,6 +176,7 @@ export function parseFinalizePayload(json: Record<string, unknown>): AssessmentB
     userId: json.userId,
     sessionId: json.sessionId,
     transcript: typeof json.transcript === "string" ? json.transcript : "",
+    segmentTranscripts: parseSegmentTranscripts(json.segmentTranscripts),
     averageScore:
       typeof json.averageScore === "number" && Number.isFinite(json.averageScore)
         ? Math.round(json.averageScore)
@@ -164,6 +196,7 @@ export function buildAssessmentPayloadFromPersisted(opts: {
   userId: string;
   sessionId: string;
   transcript: string;
+  segmentTranscripts?: SegmentTranscriptRow[];
   dimensions: RadarDimension[];
   goalLabel: string | null;
   analysisJson: string | null;
@@ -189,6 +222,7 @@ export function buildAssessmentPayloadFromPersisted(opts: {
     userId: opts.userId,
     sessionId: opts.sessionId,
     transcript: opts.transcript.slice(0, 12_000),
+    segmentTranscripts: opts.segmentTranscripts,
     dimensions: opts.dimensions,
     averageScore,
     goalLabel: opts.goalLabel,

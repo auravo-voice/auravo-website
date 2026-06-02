@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { WordleGame } from "@/components/wordle/wordle-game";
 
 export const metadata: Metadata = {
-  title: "Auravo Wordle",
+  title: "Auravord",
   description: "Daily five-letter vocabulary challenge for communication practice.",
 };
 

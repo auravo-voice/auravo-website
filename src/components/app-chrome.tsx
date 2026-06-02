@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, Mic } from "lucide-react";
+import { ExternalLink, Menu, Mic } from "lucide-react";
 import { APP_NAV } from "@/config/nav";
 import { AuravoMark, VocaBadge } from "@/components/brand";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -57,14 +57,21 @@ export function AppChrome({
           </div>
         </div>
         <div className="flex flex-1 flex-col gap-4 p-4">
-          <div className="rounded-2xl border border-dashed border-primary/30 bg-primary/5 p-3">
+          <div className="rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.09] to-primary/[0.03] p-3">
             <p className="text-xs font-medium text-muted-foreground">Voice session</p>
             <p className="mt-1 font-display text-sm text-foreground">Ready when you are</p>
+            <p className="mt-1 text-xs text-muted-foreground">Talk to Voca, your voice companion.</p>
             <Button className="mt-3 w-full gap-2" variant="glow" size="sm" asChild>
               <Link href="/dashboard">
                 <Mic className="size-4" />
                 Open mic console
               </Link>
+            </Button>
+            <Button className="mt-2 h-9 w-full justify-between rounded-xl px-3" variant="outline" size="sm" asChild>
+              <a href="https://voca.auravo.ai" target="_blank" rel="noopener noreferrer">
+                <span className="truncate">Talk to Voca</span>
+                <ExternalLink className="size-4 shrink-0 opacity-80" />
+              </a>
             </Button>
           </div>
           <NavLinks />
@@ -97,6 +104,23 @@ export function AppChrome({
               </SheetHeader>
               <Separator className="my-4" />
               <NavLinks onNavigate={() => setOpen(false)} />
+              <div className="mt-4 rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.09] to-primary/[0.03] p-3">
+                <p className="text-xs font-medium text-muted-foreground">Voice session</p>
+                <p className="mt-1 font-display text-sm text-foreground">Ready when you are</p>
+                <p className="mt-1 text-xs text-muted-foreground">Talk to Voca, your voice companion.</p>
+                <Button className="mt-3 w-full gap-2" variant="glow" size="sm" asChild>
+                  <Link href="/dashboard" onClick={() => setOpen(false)}>
+                    <Mic className="size-4" />
+                    Open mic console
+                  </Link>
+                </Button>
+                <Button className="mt-2 h-9 w-full justify-between rounded-xl px-3" variant="outline" size="sm" asChild>
+                  <a href="https://voca.auravo.ai" target="_blank" rel="noopener noreferrer">
+                    <span className="truncate">Talk to Voca</span>
+                    <ExternalLink className="size-4 shrink-0 opacity-80" />
+                  </a>
+                </Button>
+              </div>
               <div className="mt-auto space-y-4 border-t border-border/80 pt-6">
                 <div className="flex items-center gap-3">
                   <div className="size-9 shrink-0 rounded-full bg-gradient-to-br from-primary to-accent" />

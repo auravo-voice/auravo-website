@@ -322,7 +322,135 @@ This significantly reduces rebuild time on ARM64 hosts.
 
 ---
 
-## 18) Related documents
+## 18) Usage guide
+
+This section is a practical runbook for engineers who need to run, verify, and deploy the system quickly.
+
+### A) Local development (fast path)
+
+1. Install dependencies:
+   - `npm ci`
+2. Create env file:
+   - `cp .env.example .env.local`
+3. Set required env vars in `.env.local`:
+   - `NEXT_PUBLIC_POCKETBASE_URL`
+   - `GROQ_API_KEY`
+   - optional: `GROQ_MODEL`, `AURAVO_STORAGE`, transcription vars.
+4. Start the app:
+   - `npm run dev`
+5. Open:
+   - `http://localhost:3000/login`
+
+Recommended quick validation:
+
+- Login flow works (`/login` -> `/dashboard`).
+- Assessment can start and save segment drafts.
+- `/wordle` renders with Auravord label.
+
+### B) Core feature usage (end-to-end)
+
+#### 1. Assessment baseline
+
+1. Navigate to `/assessment`.
+2. Record all four segments.
+3. Finalize baseline.
+4. Confirm results page shows:
+   - six skill scores,
+   - coach insights,
+   - **What you said** split into three response blocks (`open_q1`, `open_q2`, `visual`).
+
+If transcription fails, validate degraded fallback behavior and warning copy.
+
+#### 2. Daily practice
+
+1. Navigate to `/practice/today`.
+2. Complete an exercise recording.
+3. Verify:
+   - task review returns structured content,
+   - coaching summary appears,
+   - persistence reflects latest session.
+
+#### 3. Simulations
+
+1. Start a scenario from `/simulations`.
+2. Send at least 2 turns.
+3. Verify assistant turn generation and finalize behavior.
+
+#### 4. Meeting prep
+
+1. Create a plan from `/meeting-prep`.
+2. Start rehearsal.
+3. Confirm turn-by-turn coaching plus fallback resilience.
+
+### C) Runtime knobs and what they affect
+
+- `GROQ_API_KEY`  
+  Enables live coach generation across dashboard/practice/simulations/meeting-prep.
+- `GROQ_MODEL`  
+  Controls model used by Groq structured chat.
+- `AURAVO_COACH_TIMEOUT_MS`  
+  Governs LLM timeout before fallback.
+- `AURAVO_STORAGE`  
+  Switches query backend (`sqlite` default).
+- `FASTER_WHISPER_MODEL`  
+  Speech model quality/speed tradeoff.
+
+### D) Pre-merge / pre-deploy checklist
+
+- `npm test -- --run` passes.
+- `npx tsc --noEmit` passes.
+- No accidental secret changes (`.env*` uncommitted).
+- Diff includes intended routes/UI text only.
+- If changing analysis/payload contracts, verify backward fallback behavior.
+
+### E) Hetzner deployment steps
+
+Server-side canonical flow:
+
+1. Ensure `/opt/auravo-web/.env.production.local` contains:
+   - `GROQ_API_KEY`
+   - `GROQ_MODEL`
+2. Run deploy script:
+   - `cd /opt/auravo-web && ./scripts/deploy-hetzner.sh`
+3. Script performs:
+   - `git pull origin main`
+   - `podman build` with cached layers
+   - container restart
+   - health checks (`/login`, PocketBase reachability)
+
+### F) Post-deploy verification
+
+Run on server:
+
+- `cd /opt/auravo-web && git log -1 --oneline`
+- `podman ps --filter name=auravo-web`
+- `curl -sf http://127.0.0.1:3001/login`
+
+Run externally:
+
+- `curl -I https://www.auravo.ai/login`
+- open `/assessment/results` and `/wordle` in browser.
+
+Expected:
+
+- new commit hash visible on server,
+- app routes return `200`,
+- Groq model visible in deploy script health output.
+
+### G) Troubleshooting shortcuts
+
+- Coach/fallback issues:
+  - confirm `GROQ_API_KEY` and outbound network.
+- Slow rebuilds:
+  - verify Parselmouth wheel layer cache hit in build logs.
+- Auth callback issues:
+  - validate OAuth redirect URI and cookie domain config.
+- PB access failures:
+  - verify `POCKETBASE_URL` from inside container network.
+
+---
+
+## 19) Related documents
 
 - [INSTALLATION.md](./INSTALLATION.md)
 - [POCKETBASE.md](./POCKETBASE.md)

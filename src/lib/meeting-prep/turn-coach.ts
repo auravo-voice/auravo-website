@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { ollamaChatStructured, type OllamaMessage } from "@/lib/ollama/chat-json";
-import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
+import { groqChatStructured, type GroqMessage } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 import { buildRehearsalSystemPrompt } from "./persona";
 import type { MeetingPlan, MeetingPrepContext } from "./types";
 
@@ -21,7 +21,7 @@ export async function generateRehearsalReply(input: {
   turnIndex: number;
 }): Promise<{ reply: string; kind: RehearsalTurnReply["kind"]; warning: string | null }> {
   const { ctx, plan, history, userTurn, turnIndex } = input;
-  const messages: OllamaMessage[] = [
+  const messages: GroqMessage[] = [
     { role: "system", content: buildRehearsalSystemPrompt(ctx, plan) },
   ];
   for (const t of history) {
@@ -30,15 +30,15 @@ export async function generateRehearsalReply(input: {
   messages.push({ role: "user", content: userTurn });
 
   try {
-    const out = await ollamaChatStructured({
+    const out = await groqChatStructured({
       messages,
       schema: rehearsalTurnSchema,
-      numPredict: 220,
-      timeoutMs: getCoachOllamaTimeoutMs(),
+      maxTokens: 220,
+      timeoutMs: getGroqCoachTimeoutMs(),
     });
     return { reply: out.reply.trim(), kind: out.kind, warning: null };
   } catch (e) {
-    // Deterministic fallback so the rehearsal never wedges on Ollama outage.
+    // Deterministic fallback so the rehearsal never wedges when Groq is unavailable.
     const fallback =
       turnIndex < 1
         ? { reply: "Got it — keep going.", kind: "continue" as const }

@@ -5,8 +5,8 @@ import { z } from "zod";
 import { ONBOARDING_GOALS } from "@/data/onboarding-goals";
 import { isOnboardingGoalId } from "@/lib/coach/dashboard";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
-import { ollamaChatStructured } from "@/lib/ollama/chat-json";
-import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
+import { groqChatStructured } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 
 const narrativeSchema = z.object({
   coachBlurb: z.string().max(500),
@@ -71,7 +71,7 @@ async function computeDashboardCoachingNarrative(input: DashboardNarrativeInput)
   });
 
   try {
-    const data = await ollamaChatStructured({
+    const data = await groqChatStructured({
       messages: [
         { role: "system", content: SYSTEM },
         {
@@ -80,11 +80,9 @@ async function computeDashboardCoachingNarrative(input: DashboardNarrativeInput)
         },
       ],
       schema: narrativeSchema,
-      numPredict: 256,
-      numCtx: 2_048,
+      maxTokens: 256,
       temperature: 0.3,
-      // Cold 3b loads can exceed 10s; use the full coach timeout (see AURAVO_COACH_TIMEOUT_MS).
-      timeoutMs: getCoachOllamaTimeoutMs(),
+      timeoutMs: getGroqCoachTimeoutMs(),
     });
     return { data, warning: null };
   } catch {

@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { ollamaChatStructured } from "@/lib/ollama/chat-json";
-import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
+import { groqChatStructured } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 import { AUDIENCES, MEETING_TYPES, type AudienceId, type MeetingType, type MeetingPlan } from "./types";
 
 const talkingPointSchema = z.object({
@@ -144,23 +144,22 @@ ${agenda}
 """`;
 
   try {
-    const data: PlanResponse = await ollamaChatStructured({
+    const data: PlanResponse = await groqChatStructured({
       messages: [
         { role: "system", content: compact ? SYSTEM_COMPACT : SYSTEM_FULL },
         { role: "user", content: userPrompt },
       ],
       schema: buildPlanSchema(compact),
       normalize: normalizeMeetingPlanJson,
-      numPredict: compact ? 380 : 520,
-      numCtx: compact ? 2_048 : 3_072,
+      maxTokens: compact ? 380 : 520,
       temperature: 0.3,
-      timeoutMs: getCoachOllamaTimeoutMs(),
+      timeoutMs: getGroqCoachTimeoutMs(),
     });
     return { plan: mapPlanResponse(data), warning: null };
   } catch (e) {
     return {
       plan: FALLBACK_PLAN,
-      warning: e instanceof Error ? e.message : "Could not reach the local coach.",
+      warning: e instanceof Error ? e.message : "Could not reach Groq.",
     };
   }
 }

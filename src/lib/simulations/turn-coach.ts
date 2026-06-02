@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
-import { ollamaChatStructured, type OllamaMessage } from "@/lib/ollama/chat-json";
-import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
+import { groqChatStructured, type GroqMessage } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 import { buildPersonaSystemPrompt } from "@/lib/simulations/persona";
 import type { Difficulty, Scenario } from "@/lib/simulations/library";
 
@@ -13,7 +13,7 @@ export type SimulationTranscriptTurn = { role: "user" | "assistant"; text: strin
 
 /**
  * Generates the AI partner's next reply given the scenario, difficulty, and prior turns. Always returns a string —
- * on Ollama failure we surface a transparent fallback so the runner can keep moving rather than wedging the UI.
+ * on Groq failure we surface a transparent fallback so the runner can keep moving rather than wedging the UI.
  */
 export async function generateSimulationReply(input: {
   scenario: Scenario;
@@ -22,7 +22,7 @@ export async function generateSimulationReply(input: {
   userTurn: string;
 }): Promise<{ reply: string; warning: string | null }> {
   const { scenario, difficulty, history, userTurn } = input;
-  const messages: OllamaMessage[] = [
+  const messages: GroqMessage[] = [
     { role: "system", content: buildPersonaSystemPrompt(scenario, difficulty) },
   ];
   for (const t of history) {
@@ -31,11 +31,11 @@ export async function generateSimulationReply(input: {
   messages.push({ role: "user", content: userTurn });
 
   try {
-    const out = await ollamaChatStructured({
+    const out = await groqChatStructured({
       messages,
       schema: turnSchema,
-      numPredict: 320,
-      timeoutMs: getCoachOllamaTimeoutMs(),
+      maxTokens: 320,
+      timeoutMs: getGroqCoachTimeoutMs(),
     });
     return { reply: out.reply.trim(), warning: null };
   } catch (e) {
@@ -63,7 +63,7 @@ export async function generateCustomScenario(input: {
   description: string;
 }): Promise<{ scenario: GeneratedCustomScenario; warning: string | null }> {
   const desc = input.description.trim().slice(0, 800);
-  const messages: OllamaMessage[] = [
+  const messages: GroqMessage[] = [
     {
       role: "system",
       content: `You generate a single simulation scenario in JSON for a turn-by-turn voice practice tool.
@@ -85,11 +85,11 @@ Keep it realistic, plain English, no emojis, no markdown.`,
   ];
 
   try {
-    const data = await ollamaChatStructured({
+    const data = await groqChatStructured({
       messages,
       schema: customScenarioSchema,
-      numPredict: 480,
-      timeoutMs: getCoachOllamaTimeoutMs(),
+      maxTokens: 480,
+      timeoutMs: getGroqCoachTimeoutMs(),
     });
     return { scenario: data, warning: null };
   } catch (e) {

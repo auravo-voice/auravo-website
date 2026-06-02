@@ -1,7 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { ollamaChatStructured } from "@/lib/ollama/chat-json";
-import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
+import { groqChatStructured } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 import { coachFailureWarning, type CoachServeResult } from "@/lib/coach/coach-serve-result";
 import { FALLBACK_SCENARIOS } from "@/lib/coach/fallbacks";
 import { scenariosLibrarySchema, type ScenariosLibraryPayload } from "@/lib/coach/schemas";
@@ -22,14 +22,14 @@ function scenariosUserMessage(q: string, c: string): string {
 }
 
 async function fetchScenariosModel(q: string, c: string): Promise<ScenariosLibraryPayload> {
-  return ollamaChatStructured({
+  return groqChatStructured({
     messages: [
       { role: "system", content: SYSTEM },
       { role: "user", content: scenariosUserMessage(q, c) },
     ],
     schema: scenariosLibrarySchema,
-    numPredict: 1600,
-    timeoutMs: getCoachOllamaTimeoutMs(),
+    maxTokens: 1600,
+    timeoutMs: getGroqCoachTimeoutMs(),
   });
 }
 

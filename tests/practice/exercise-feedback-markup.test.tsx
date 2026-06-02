@@ -55,7 +55,7 @@ describe("ExerciseFeedback markup", () => {
             whatWorked: "Concrete details and a credible attempt at the closing move the prompt asked for.",
             whatToImprove: "Name trade-offs earlier so the middle of the answer feels less generic.",
             revisedNextAttemptStrategy: "Open with thesis, add one example, then close with the requested action.",
-            taskReviewSource: "ollama",
+            taskReviewSource: "groq",
           },
         })}
         onContinue={() => {}}

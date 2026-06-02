@@ -1,7 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { ollamaChatStructured } from "@/lib/ollama/chat-json";
-import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
+import { groqChatStructured } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 import { coachFailureWarning, type CoachServeResult } from "@/lib/coach/coach-serve-result";
 import { FALLBACK_PROGRESS } from "@/lib/coach/fallbacks";
 import { progressJournalSchema, type ProgressJournalPayload } from "@/lib/coach/schemas";
@@ -22,7 +22,7 @@ export async function getProgressJournalCoachServing(): Promise<CoachServeResult
   try {
     const data = await unstable_cache(
       async () =>
-        ollamaChatStructured({
+        groqChatStructured({
           messages: [
             { role: "system", content: SYSTEM },
             {
@@ -31,8 +31,8 @@ export async function getProgressJournalCoachServing(): Promise<CoachServeResult
             },
           ],
           schema: progressJournalSchema,
-          numPredict: 2400,
-          timeoutMs: getCoachOllamaTimeoutMs(),
+          maxTokens: 2400,
+          timeoutMs: getGroqCoachTimeoutMs(),
         }),
       ["auravo-coach-progress-journal-v1"],
       { revalidate: 300 },

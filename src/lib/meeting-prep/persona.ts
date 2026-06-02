@@ -1,4 +1,4 @@
-import type { OllamaMessage } from "@/lib/ollama/chat-json";
+import type { GroqMessage } from "@/lib/groq/chat-json";
 import type {
   AudienceId,
   MeetingPlan,
@@ -56,6 +56,6 @@ export function buildRehearsalSystemPrompt(ctx: MeetingPrepContext, plan: Meetin
 
 export function buildRehearsalChatHistory(
   prior: { role: "user" | "assistant"; text: string }[],
-): OllamaMessage[] {
+): GroqMessage[] {
   return prior.map((t) => ({ role: t.role, content: t.text }));
 }

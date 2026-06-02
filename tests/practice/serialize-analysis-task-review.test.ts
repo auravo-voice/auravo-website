@@ -61,11 +61,11 @@ describe("serializeAnalysisForPersistence taskReview", () => {
       whatWorked: "Concrete nouns tied to the scenario and a credible next step.",
       whatToImprove: "Name owners earlier and tighten the final sentence.",
       revisedNextAttemptStrategy: "Headline outcome, then blockers, then one owner and date.",
-      taskReviewSource: "ollama",
+      taskReviewSource: "groq",
     });
     const json = JSON.parse(serializeAnalysisForPersistence(minimalAnalysis({ taskReview })));
     expect(json.taskReview?.taskFitScore).toBe(64);
-    expect(json.taskReview?.taskReviewSource).toBe("ollama");
+    expect(json.taskReview?.taskReviewSource).toBe("groq");
   });
 
   it("serializes null taskReview for non-practice flows", () => {

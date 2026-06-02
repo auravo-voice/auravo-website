@@ -150,7 +150,7 @@ export function normalizeTaskReviewJson(
 }
 
 export const exerciseTaskReviewResultSchema = exerciseTaskReviewSchema.extend({
-  taskReviewSource: z.enum(["ollama", "fallback"]),
+  taskReviewSource: z.enum(["groq", "ollama", "fallback"]),
 });
 
 export type ExerciseTaskReviewResult = z.infer<typeof exerciseTaskReviewResultSchema>;

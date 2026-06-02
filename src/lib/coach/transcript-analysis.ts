@@ -2,7 +2,7 @@ import "server-only";
 
 import type { DerivedMetrics } from "@/lib/analysis/derive";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
-import { getGroqApiKey, getGroqModel } from "@/lib/groq/env";
+import { getGroqApiKey, getGroqCoachTimeoutMs, getGroqModel } from "@/lib/groq/env";
 
 export type CoachingPattern = {
   pattern: string;
@@ -186,6 +186,7 @@ ${transcript.slice(0, 3000)}
       messages: [{ role: "user", content: userMessage }],
     }),
     cache: "no-store",
+    signal: AbortSignal.timeout(getGroqCoachTimeoutMs()),
   });
 
   if (!response.ok) {

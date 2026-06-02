@@ -93,9 +93,9 @@ describe("parseExerciseTaskReviewResult", () => {
       whatWorked: "Concrete nouns around the migration and a credible next step.",
       whatToImprove: "Spell out ownership earlier and tighten the final sentence.",
       revisedNextAttemptStrategy: "Use headline → evidence → owner/date, then invite one clarifying question.",
-      taskReviewSource: "ollama",
+      taskReviewSource: "groq",
     });
-    expect(tr?.taskReviewSource).toBe("ollama");
+    expect(tr?.taskReviewSource).toBe("groq");
     expect(tr?.taskFitScore).toBe(61);
   });
 });

@@ -1,7 +1,7 @@
 import "server-only";
 
-import { ollamaChatStructured, OllamaCoachError } from "@/lib/ollama/chat-json";
-import { getCoachOllamaTimeoutMs } from "@/lib/ollama/env";
+import { groqChatStructured, GroqCoachError } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 import {
   buildFallbackTaskReview,
   buildTaskReviewUserPayload,
@@ -38,7 +38,7 @@ Required JSON shape (all string values except taskFitScore):
 }`;
 
 /**
- * Structured exercise-vs-transcript review via local Ollama, with deterministic fallback.
+ * Structured exercise-vs-transcript review via Groq, with deterministic fallback.
  */
 export async function generateExerciseTaskReview(
   input: GenerateExerciseTaskReviewInput,
@@ -57,22 +57,21 @@ export async function generateExerciseTaskReview(
   };
 
   try {
-    const data = await ollamaChatStructured({
+    const data = await groqChatStructured({
       messages: [
         { role: "system", content: TASK_REVIEW_SYSTEM },
         { role: "user", content: buildTaskReviewUserPayload(input) },
       ],
       schema: exerciseTaskReviewSchema,
       normalize: (parsed) => normalizeTaskReviewJson(parsed, fallbackPayload),
-      numPredict: 1_200,
-      numCtx: 4_096,
+      maxTokens: 1_200,
       temperature: 0.2,
-      timeoutMs: getCoachOllamaTimeoutMs(),
+      timeoutMs: getGroqCoachTimeoutMs(),
     });
-    return { ...data, taskReviewSource: "ollama" as const };
+    return { ...data, taskReviewSource: "groq" as const };
   } catch (e) {
-    const msg = e instanceof OllamaCoachError ? e.message : e instanceof Error ? e.message : String(e);
-    console.error("[task-review] Ollama task review failed, using fallback:", msg);
+    const msg = e instanceof GroqCoachError ? e.message : e instanceof Error ? e.message : String(e);
+    console.error("[task-review] Groq task review failed, using fallback:", msg);
     return fallbackFull;
   }
 }

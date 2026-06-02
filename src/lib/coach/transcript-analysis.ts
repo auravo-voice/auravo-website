@@ -2,8 +2,7 @@ import "server-only";
 
 import type { DerivedMetrics } from "@/lib/analysis/derive";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
-import { getCoachOllamaTimeoutMs, getOllamaBaseUrl, getOllamaModel } from "@/lib/ollama/env";
-import { OllamaCoachError } from "@/lib/ollama/chat-json";
+import { getGroqApiKey, getGroqModel } from "@/lib/groq/env";
 
 export type CoachingPattern = {
   pattern: string;
@@ -25,7 +24,7 @@ export type TranscriptInsights = {
   strength: string | null;
 };
 
-const EMPTY_INSIGHTS: TranscriptInsights = {
+export const EMPTY_TRANSCRIPT_INSIGHTS: TranscriptInsights = {
   patterns: [],
   acoustic_patterns: [],
   biggest_issue: null,
@@ -91,25 +90,38 @@ function parseInsights(raw: string): TranscriptInsights {
   return { patterns, acoustic_patterns, biggest_issue, strength };
 }
 
-function buildPrompt(
+/**
+ * Groq pass: read transcript + acoustic context and return pattern-based coaching insights.
+ */
+export async function callGroqForCoaching(
   transcript: string,
   userGoal: string,
   derivedMetrics: DerivedMetrics,
-  acousticData: AcousticFeatures,
-): string {
+  acousticData: AcousticFeatures | null,
+): Promise<TranscriptInsights> {
+  if (!transcript.trim()) return EMPTY_TRANSCRIPT_INSIGHTS;
+
+  const acoustic: AcousticFeatures =
+    acousticData ??
+    ({
+      pitch: { mean: 0, range: 0, isMonotone: false, timeline: [] },
+      intensity: { mean: 0, collapseSegments: [] },
+      rhythm: { tempoVariation: 0, clarityScore: 0 },
+    } satisfies AcousticFeatures);
+
   const collapseNote =
-    acousticData.intensity.collapseSegments.length > 0
-      ? `Voice energy collapsed at: ${acousticData.intensity.collapseSegments.map((s) => `${s.start}s-${s.end}s`).join(", ")}`
+    acoustic.intensity.collapseSegments.length > 0
+      ? `Voice energy collapsed at: ${acoustic.intensity.collapseSegments.map((s) => `${s.start}s-${s.end}s`).join(", ")}`
       : "No significant energy collapse detected";
 
   const topFillers =
-    derivedMetrics.topFillers.length > 0 ? derivedMetrics.topFillers.join(", ") : "none detected";
+    derivedMetrics.topFillers.length > 0 ? derivedMetrics.topFillers.join(", ") : "none";
 
-  return `
+  const userMessage = `
 You are analyzing a speech transcript for a coaching app.
 The speaker's goal is: ${userGoal}
 
-Read this transcript and identify ONLY non-obvious patterns — things that
+Read this transcript and identify ONLY non-obvious patterns — things that 
 wouldn't show up in word counts or timing metrics.
 
 Look specifically for:
@@ -120,18 +132,20 @@ Look specifically for:
 - Logical flow issues (jumping topics, incomplete thoughts)
 
 Acoustic context already computed (use this to confirm patterns):
-- Pitch range: ${acousticData.pitch.range}Hz (below 50Hz = monotone)
-- Monotone: ${acousticData.pitch.isMonotone}
+- Pitch range: ${acoustic.pitch.range}Hz (below 50Hz = monotone)
+- Monotone: ${acoustic.pitch.isMonotone}
 - ${collapseNote}
-- Clarity score: ${acousticData.rhythm.clarityScore}
+- Clarity score: ${acoustic.rhythm.clarityScore}
 
-Known surface metrics (do not repeat these):
+Known surface metrics (do not repeat these, find what's beyond them):
 - WPM: ${derivedMetrics.wpm ?? "unknown"}
 - Filler rate: ${derivedMetrics.fillerRatePerMin.toFixed(1)}/min
-- Hedge phrases: ${derivedMetrics.hedgeCount}
 - Top fillers: ${topFillers}
+- Hedge count: ${derivedMetrics.hedgeCount}
+- Trailing count: ${derivedMetrics.trailingCount}
+- Restate count: ${derivedMetrics.restateCount}
 
-Return JSON only, no preamble, no markdown:
+Return JSON only, no preamble, no markdown backticks:
 {
   "patterns": [
     {
@@ -155,67 +169,49 @@ Return JSON only, no preamble, no markdown:
 Transcript:
 ${transcript.slice(0, 3000)}
 `.trim();
+
+  const model = getGroqModel();
+  console.log(`Groq coaching call: model=${model}, transcript_length=${transcript.length}`);
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getGroqApiKey()}`,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 1000,
+      temperature: 0.3,
+      messages: [{ role: "user", content: userMessage }],
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Groq API error: ${response.status} ${error.slice(0, 300)}`);
+  }
+
+  const data = (await response.json()) as {
+    choices?: { message?: { content?: string } }[];
+  };
+  const text = data.choices?.[0]?.message?.content ?? "";
+
+  try {
+    return parseInsights(text);
+  } catch {
+    console.error("Failed to parse Groq response:", text.slice(0, 500));
+    return EMPTY_TRANSCRIPT_INSIGHTS;
+  }
 }
 
-/**
- * Pass 2: LLM reads the raw transcript plus acoustic context to surface non-obvious coaching patterns.
- */
+/** @deprecated Use {@link callGroqForCoaching}. Kept for call-site compatibility. */
 export async function analyzeTranscriptWithLLM(
   transcript: string,
   userGoal: string,
   derivedMetrics: DerivedMetrics,
   acousticData: AcousticFeatures | null,
 ): Promise<TranscriptInsights> {
-  if (!transcript.trim()) return EMPTY_INSIGHTS;
-
-  const acoustic: AcousticFeatures =
-    acousticData ??
-    ({
-      pitch: { mean: 0, range: 0, isMonotone: false, timeline: [] },
-      intensity: { mean: 0, collapseSegments: [] },
-      rhythm: { tempoVariation: 0, clarityScore: 0 },
-    } satisfies AcousticFeatures);
-
-  const prompt = buildPrompt(transcript, userGoal, derivedMetrics, acoustic);
-  const url = `${getOllamaBaseUrl()}/api/generate`;
-  const timeoutMs = getCoachOllamaTimeoutMs();
-
-  let res: Response;
-  try {
-    res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: getOllamaModel(),
-        prompt,
-        stream: false,
-        options: {
-          temperature: 0.3,
-          num_predict: 800,
-          num_ctx: 2048,
-        },
-      }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (e) {
-    throw new OllamaCoachError(
-      `Transcript coach did not finish within ${Math.round(timeoutMs / 1000)}s.`,
-      e,
-    );
-  }
-
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new OllamaCoachError(`Ollama generate failed (${res.status}): ${body.slice(0, 200)}`);
-  }
-
-  const data = (await res.json()) as { response?: string };
-  const raw = typeof data.response === "string" ? data.response : "";
-
-  try {
-    return parseInsights(raw);
-  } catch {
-    return EMPTY_INSIGHTS;
-  }
+  return callGroqForCoaching(transcript, userGoal, derivedMetrics, acousticData);
 }

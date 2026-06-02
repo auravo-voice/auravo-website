@@ -7,13 +7,24 @@ IMAGE="${IMAGE:-auravo-web:latest}"
 CONTAINER="${CONTAINER:-auravo-web}"
 NETWORK="${NETWORK:-voca}"
 DATA_VOLUME="${DATA_VOLUME:-auravo-data}"
+ENV_FILE="${ENV_FILE:-$APP_DIR/.env.production.local}"
 
 NEXT_PUBLIC_POCKETBASE_URL="${NEXT_PUBLIC_POCKETBASE_URL:-https://pb.auravo.ai}"
 NEXT_PUBLIC_APP_URL="${NEXT_PUBLIC_APP_URL:-https://www.auravo.ai}"
 POCKETBASE_URL="${POCKETBASE_URL:-http://auth:8080}"
-OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://host.containers.internal:11434}"
+GROQ_MODEL="${GROQ_MODEL:-llama-3.1-8b-instant}"
 
 cd "$APP_DIR"
+
+if [ -f "$ENV_FILE" ]; then
+  echo "==> Loading secrets from $ENV_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+fi
+
+: "${GROQ_API_KEY:?Set GROQ_API_KEY in $ENV_FILE before deploy}"
 
 echo "==> Pull latest"
 git pull origin main
@@ -41,10 +52,9 @@ podman run -d --name "$CONTAINER" \
   -e "POCKETBASE_URL=$POCKETBASE_URL" \
   -e AURAVO_STORAGE=sqlite \
   -e AURAVO_DB_DIR=/data \
-  -e "OLLAMA_BASE_URL=$OLLAMA_BASE_URL" \
-  -e OLLAMA_MODEL=gemma2:2b \
+  -e "GROQ_API_KEY=$GROQ_API_KEY" \
+  -e "GROQ_MODEL=$GROQ_MODEL" \
   -e FASTER_WHISPER_MODEL=small \
-  -e AURAVO_COACH_TIMEOUT_MS=180000 \
   -e TRANSCRIPTION_PROVIDER=faster-whisper \
   -e FASTER_WHISPER_PYTHON=/app/.venv-transcription/bin/python \
   --replace \
@@ -54,10 +64,9 @@ echo "==> Health checks"
 sleep 3
 curl -sf http://127.0.0.1:3001/login >/dev/null && echo "OK: /login"
 podman exec "$CONTAINER" node -e "
-  Promise.all([
-    fetch(process.env.POCKETBASE_URL + '/api/health').then((r) => r.json()),
-    fetch(process.env.OLLAMA_BASE_URL + '/api/tags').then((r) => r.ok),
-  ]).then(([pb, ollama]) => console.log('PocketBase', pb.code, 'Ollama', ollama ? 'ok' : 'fail'))
+  fetch(process.env.POCKETBASE_URL + '/api/health')
+    .then((r) => r.json())
+    .then((pb) => console.log('PocketBase', pb.code, 'Groq model', process.env.GROQ_MODEL))
     .catch((e) => { console.error(e); process.exit(1); });
 "
 

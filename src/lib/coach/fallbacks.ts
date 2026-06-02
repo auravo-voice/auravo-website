@@ -76,3 +76,29 @@ export const FALLBACK_SCENARIOS: ScenariosLibraryPayload = scenariosLibrarySchem
 
 // Note: The single-shot `FALLBACK_MEETING_PREP` was removed in Phase E. Meeting-prep fallback content now lives in
 // `src/lib/meeting-prep/plan.ts` (the deterministic plan used when the local coach is unavailable).
+
+import type { DerivedMetrics } from "@/lib/analysis/derive";
+import type { AcousticFeatures } from "@/lib/audio/acoustic";
+import {
+  callGroqForCoaching,
+  EMPTY_TRANSCRIPT_INSIGHTS,
+  type TranscriptInsights,
+} from "@/lib/coach/transcript-analysis";
+
+/**
+ * Groq transcript coaching with deterministic empty insights on failure.
+ * {@link generateFinalCoachingSummary} merges score-based fallback when insights are empty.
+ */
+export async function analyzeTranscriptWithCoachingFallback(
+  transcript: string,
+  userGoal: string,
+  derivedMetrics: DerivedMetrics,
+  acousticData: AcousticFeatures | null,
+): Promise<TranscriptInsights> {
+  try {
+    return await callGroqForCoaching(transcript, userGoal, derivedMetrics, acousticData);
+  } catch (error) {
+    console.error("Groq coaching failed, using deterministic fallback:", error);
+    return EMPTY_TRANSCRIPT_INSIGHTS;
+  }
+}

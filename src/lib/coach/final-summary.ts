@@ -4,12 +4,8 @@ import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
 import { DIMENSION_LABELS } from "@/lib/assessment/dimensions-from-scores";
 import type { VoiceAnalysis } from "@/lib/analysis/scoring";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
-import { coachFailureWarning } from "@/lib/coach/coach-serve-result";
-import {
-  analyzeTranscriptWithLLM,
-  type AcousticCoachingPattern,
-  type CoachingPattern,
-} from "@/lib/coach/transcript-analysis";
+import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
+import { analyzeTranscriptWithCoachingFallback } from "@/lib/coach/fallbacks";
 import {
   isValidRecommendationSet,
   type RecommendedExercise,
@@ -116,7 +112,7 @@ function buildFallbackSummary(
 }
 
 /**
- * Two-pass coaching: deterministic scores (pass 1) + gemma2 transcript pattern analysis (pass 2).
+ * Two-pass coaching: deterministic scores (pass 1) + Groq transcript pattern analysis (pass 2).
  * Exercise picks remain deterministic from the candidate pool.
  */
 export async function generateFinalCoachingSummary(
@@ -149,22 +145,17 @@ export async function generateFinalCoachingSummary(
     }
   }
 
-  let transcriptInsights;
-  try {
-    transcriptInsights = await analyzeTranscriptWithLLM(
-      transcript,
-      userGoal,
-      analysis.derivedMetrics,
-      acousticFeatures,
-    );
-  } catch (e) {
-    console.error("[final-summary] transcript LLM failed; using deterministic fallback:", e);
-    return {
-      ...fallback,
-      fallbackUsed: true,
-      warning: `Pattern analysis used a deterministic fallback. ${coachFailureWarning(e)}`,
-    };
-  }
+  const transcriptInsights = await analyzeTranscriptWithCoachingFallback(
+    transcript,
+    userGoal,
+    analysis.derivedMetrics,
+    acousticFeatures,
+  );
+
+  const groqFailed =
+    transcriptInsights.patterns.length === 0 &&
+    !transcriptInsights.biggest_issue &&
+    !transcriptInsights.strength;
 
   const patterns = transcriptInsights.patterns.slice(0, 6);
   const acousticPatterns = transcriptInsights.acoustic_patterns.slice(0, 4);
@@ -199,11 +190,8 @@ export async function generateFinalCoachingSummary(
     strengths: strengths.slice(0, 4),
     improvementAreas: improvementAreas.slice(0, 4),
     scoreExplanations: fallback.scoreExplanations,
-    fallbackUsed: patterns.length === 0 && !biggestIssue,
-    warning:
-      patterns.length === 0 && !biggestIssue
-        ? "Coach could not extract transcript patterns; showing score-based guidance."
-        : null,
+    fallbackUsed: groqFailed,
+    warning: groqFailed ? "Coach used score-based guidance because Groq returned no patterns." : null,
   };
 
   if (!isValidRecommendationSet(coachSummary.recommendedExerciseIds, candidateExercises)) {

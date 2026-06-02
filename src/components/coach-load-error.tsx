@@ -4,8 +4,9 @@ export function CoachLoadError({ title = "Coach unavailable", message }: { title
       <p className="font-semibold text-destructive">{title}</p>
       <p className="mt-2 text-muted-foreground">{message}</p>
       <p className="mt-3 text-xs text-muted-foreground">
-        Ensure Ollama is running locally and the model is installed:{" "}
-        <code className="rounded bg-muted px-1 py-0.5 text-foreground">ollama pull gemma2:2b</code>
+        Check that{" "}
+        <code className="rounded bg-muted px-1 py-0.5 text-foreground">GROQ_API_KEY</code> is set on the
+        server and Groq is reachable.
       </p>
     </div>
   );

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { z } from "zod";
-import { getGroqApiKey, getGroqCoachTimeoutMs, getGroqModel } from "@/lib/groq/env";
+import { groqChatStructured } from "@/lib/groq/chat-json";
+import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 
 export type GrammarErrorType =
   | "tense"
@@ -25,27 +26,84 @@ export interface GrammarAnalysisResult {
   strengths: string[];
 }
 
+const grammarErrorTypeSchema = z.enum([
+  "tense",
+  "article",
+  "preposition",
+  "agreement",
+  "word_choice",
+  "other",
+]);
+
 const grammarErrorSchema = z.object({
   error: z.string().min(1),
   correction: z.string().min(1),
-  type: z.enum(["tense", "article", "preposition", "agreement", "word_choice", "other"]),
+  type: grammarErrorTypeSchema,
   explanation: z.string().min(1),
 });
 
 const grammarResponseSchema = z.object({
   errors: z.array(grammarErrorSchema).default([]),
   strengths: z.array(z.string()).default([]),
-  summary: z.string().default(""),
+  summary: z.string().min(1),
 });
 
-function extractJsonBlock(raw: string): string {
-  const t = raw.trim();
-  const fenced = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  if (fenced?.[1]) return fenced[1].trim();
-  const start = t.indexOf("{");
-  const end = t.lastIndexOf("}");
-  if (start !== -1 && end > start) return t.slice(start, end + 1);
-  return t;
+function normalizeErrorType(raw: unknown): GrammarErrorType {
+  const t = String(raw ?? "other")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+  if (t.includes("tense")) return "tense";
+  if (t.includes("article")) return "article";
+  if (t.includes("preposition") || t.includes("prep")) return "preposition";
+  if (t.includes("agreement") || t.includes("subject")) return "agreement";
+  if (t.includes("word") || t.includes("choice")) return "word_choice";
+  if (
+    grammarErrorTypeSchema.options.includes(t as GrammarErrorType)
+  ) {
+    return t as GrammarErrorType;
+  }
+  return "other";
+}
+
+/** Coerce common Groq shape drift before Zod (extra keys, wrong casing, alternate field names). */
+function normalizeGrammarPayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = raw as Record<string, unknown>;
+
+  const errorsRaw = Array.isArray(o.errors) ? o.errors : [];
+  const errors: z.infer<typeof grammarErrorSchema>[] = [];
+  for (const item of errorsRaw) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const error = String(row.error ?? row.phrase ?? row.text ?? "").trim();
+    const correction = String(row.correction ?? row.fix ?? row.suggestion ?? "").trim();
+    if (!error || !correction) continue;
+    const explanation =
+      String(row.explanation ?? row.reason ?? row.note ?? "").trim() ||
+      `Use "${correction}" instead of "${error}".`;
+    errors.push({
+      error,
+      correction,
+      type: normalizeErrorType(row.type ?? row.category),
+      explanation,
+    });
+  }
+
+  const strengths = Array.isArray(o.strengths)
+    ? o.strengths.filter((s): s is string => typeof s === "string" && s.trim().length > 0)
+    : [];
+
+  const summary =
+    typeof o.summary === "string" && o.summary.trim()
+      ? o.summary.trim()
+      : typeof o.overall === "string" && o.overall.trim()
+        ? o.overall.trim()
+        : errors.length > 0
+          ? `Found ${errors.length} grammar pattern${errors.length === 1 ? "" : "s"} to polish.`
+          : "No major grammar issues stood out in this transcript.";
+
+  return { errors, strengths, summary };
 }
 
 function computeGrammarScore(errorCount: number, wordCount: number): number {
@@ -54,17 +112,13 @@ function computeGrammarScore(errorCount: number, wordCount: number): number {
   return Math.max(0, Math.min(100, Math.round(100 - errorsPerHundredWords * 8)));
 }
 
-export const EMPTY_GRAMMAR_ANALYSIS: GrammarAnalysisResult = {
-  errors: [],
-  score: 75,
-  summary: "Grammar analysis unavailable.",
-  strengths: [],
-};
-
 /**
  * Groq-powered grammar review of a speech transcript (tense, articles, agreement, etc.).
+ * Returns null when Groq is down or the response cannot be parsed — caller should use regex fallback.
  */
-export async function analyzeGrammarWithGroq(transcript: string): Promise<GrammarAnalysisResult> {
+export async function analyzeGrammarWithGroq(
+  transcript: string,
+): Promise<GrammarAnalysisResult | null> {
   const trimmed = transcript.trim();
   if (trimmed.length < 8) {
     return {
@@ -79,7 +133,7 @@ export async function analyzeGrammarWithGroq(transcript: string): Promise<Gramma
 
   const prompt = `You are a professional English grammar coach analyzing a speech transcript.
 
-Identify ALL grammar errors in this transcript. Focus on:
+Identify grammar errors in this transcript. Focus on:
 - Tense errors (e.g. "I was go", "he have done", "we will went")
 - Article errors (e.g. "I have meeting", "she is engineer", "I went to hospital")
 - Subject-verb agreement (e.g. "he don't", "they was", "she have")
@@ -91,52 +145,35 @@ Do NOT flag:
 - Filler words
 - Incomplete sentences caused by natural speech patterns
 
-Return JSON only, no preamble, no markdown:
+Return JSON only with this exact shape:
 {
   "errors": [
     {
       "error": "exact phrase from transcript that is wrong",
       "correction": "what it should be",
-      "type": "tense|article|preposition|agreement|word_choice|other",
+      "type": "tense",
       "explanation": "one sentence explaining the rule"
     }
   ],
-  "strengths": ["one thing they did grammatically well", "another strength if present"],
+  "strengths": ["one thing they did grammatically well"],
   "summary": "one sentence overall grammar assessment"
 }
+
+Use type exactly one of: tense, article, preposition, agreement, word_choice, other.
 
 Transcript:
 ${trimmed.slice(0, 4000)}`;
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getGroqApiKey()}`,
-    },
-    body: JSON.stringify({
-      model: getGroqModel(),
-      max_tokens: 1000,
-      temperature: 0.1,
-      response_format: { type: "json_object" },
-      messages: [{ role: "user", content: prompt }],
-    }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(getGroqCoachTimeoutMs()),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Groq grammar analysis failed: ${response.status} ${text.slice(0, 200)}`);
-  }
-
-  const data = (await response.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const text = data.choices?.[0]?.message?.content ?? "";
-
   try {
-    const parsed = grammarResponseSchema.parse(JSON.parse(extractJsonBlock(text)));
+    const parsed = await groqChatStructured({
+      messages: [{ role: "user", content: prompt }],
+      schema: grammarResponseSchema,
+      maxTokens: 1200,
+      temperature: 0.1,
+      timeoutMs: getGroqCoachTimeoutMs(),
+      normalize: normalizeGrammarPayload,
+    });
+
     const errorCount = parsed.errors.length;
     return {
       errors: parsed.errors,
@@ -145,7 +182,7 @@ ${trimmed.slice(0, 4000)}`;
       strengths: parsed.strengths,
     };
   } catch (e) {
-    console.error("Failed to parse Groq grammar response:", text.slice(0, 500), e);
-    return EMPTY_GRAMMAR_ANALYSIS;
+    console.error("[grammar-analysis] Groq failed:", e);
+    return null;
   }
 }

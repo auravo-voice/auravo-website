@@ -238,7 +238,7 @@ export function scoreGrammar(
   transcript: string,
   grammarAnalysis?: GrammarAnalysisResult | null,
 ): ScoreResult {
-  if (grammarAnalysis && grammarAnalysis.errors !== undefined) {
+  if (grammarAnalysis?.summary) {
     return {
       score: grammarAnalysis.score,
       explanation: grammarAnalysis.summary || "Grammar reviewed from your transcript.",

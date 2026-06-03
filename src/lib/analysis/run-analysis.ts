@@ -73,22 +73,22 @@ export type CanonicalAnalysis = {
 /**
  * Inputs to {@link runAnalysis}. Callers can either supply audio inputs (full pipeline runs) or
  * provide already-transcribed text via `preTranscribed` when the route has reason to skip
- * re-transcription (e.g. simulation finalize where each turn was transcribed live). When both audio
- * and preTranscribed are supplied, audio wins — the orchestrator re-transcribes the concatenated
- * audio because Whisper word timings on the full recording yield better pacing/pause scores than
- * stitching per-turn transcripts together.
+ * re-transcription. When both audio and preTranscribed are supplied, audio normally wins (full
+ * Whisper on concat). Set {@link RunAnalysisInput.reusePreTranscription} when per-segment transcripts
+ * were already produced with word timings (initial assessment) — acoustic/VAD still run on concat audio.
  */
 export type RunAnalysisInput = {
   /** Path to a single audio file relative to `data/`, OR a sequence to concat. Use one or the other. */
   audio?:
     | { mode: "single"; absolutePath: string; durationMs?: number | null }
     | { mode: "concat"; absolutePaths: string[]; totalDurationMs?: number | null };
-  /** Pre-transcribed text when audio is not provided. Used only as a fallback path. */
-  preTranscribed?: {
-    text: string;
-    adapter?: string;
-    durationSec?: number | null;
-  };
+  /**
+   * Pre-transcribed result when audio is not provided, or when {@link reusePreTranscription} is true
+   * alongside audio (assessment finalize fast path).
+   */
+  preTranscribed?: TranscriptionResult & { adapter?: string };
+  /** Skip concat Whisper when `preTranscribed` includes stitched per-segment word timings. */
+  reusePreTranscription?: boolean;
   /** Conversation context for simulations / meeting rehearsals. */
   conversation?: { turns: ConversationTurnInput[] };
   /** User context used for exercise recommendations + coach summary personalisation. */
@@ -182,7 +182,21 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
   let acoustic: AcousticResult;
   let vad: VadResult;
 
-  if (resolved) {
+  const reusePreTranscription =
+    Boolean(input.reusePreTranscription && input.preTranscribed?.text?.trim()) &&
+    (input.preTranscribed?.wordTimings?.length ?? 0) > 0;
+
+  if (resolved && reusePreTranscription && input.preTranscribed) {
+    adapterName = input.preTranscribed.adapter ?? "segment-stitch";
+    transcription = input.preTranscribed;
+    const cacheKey = resolved.featureCacheKey;
+    const [acousticResult, vadResult] = await Promise.all([
+      extractAcousticFeatures(resolved.audioPath, { cacheKey }),
+      extractVadFeatures(resolved.audioPath, { cacheKey }),
+    ]);
+    acoustic = acousticResult;
+    vad = vadResult;
+  } else if (resolved) {
     const adapter = getTranscriptionAdapter();
     adapterName = adapter.name;
     const cacheKey = resolved.featureCacheKey;
@@ -196,10 +210,7 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     vad = vadResult;
   } else if (input.preTranscribed) {
     adapterName = input.preTranscribed.adapter ?? "pre-transcribed";
-    transcription = {
-      text: input.preTranscribed.text,
-      durationSec: input.preTranscribed.durationSec ?? undefined,
-    };
+    transcription = input.preTranscribed;
     acoustic = { available: false, reason: "no_audio_input" };
     vad = { available: false, reason: "no_audio_input" };
   } else {

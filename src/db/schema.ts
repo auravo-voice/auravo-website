@@ -56,6 +56,8 @@ export const baselineSegment = sqliteTable("baseline_segment", {
   audioRelativePath: text("audio_relative_path").notNull(),
   durationMs: integer("duration_ms"),
   transcript: text("transcript"),
+  /** Word-level Whisper metadata (JSON) for fast finalize without re-transcribing concat audio. */
+  transcriptMetaJson: text("transcript_meta_json"),
   /** NULL while draft; set to practice_session.id after finalize. */
   sessionId: text("session_id"),
   createdAt: integer("created_at").notNull(),

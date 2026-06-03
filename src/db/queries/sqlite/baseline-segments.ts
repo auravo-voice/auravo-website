@@ -9,6 +9,7 @@ export type DraftSegmentRow = {
   audioRelativePath: string;
   durationMs: number | null;
   transcript: string | null;
+  transcriptMetaJson: string | null;
   createdAt: number;
 };
 
@@ -21,6 +22,7 @@ export async function listDraftSegments(userId: string): Promise<DraftSegmentRow
       audioRelativePath: baselineSegment.audioRelativePath,
       durationMs: baselineSegment.durationMs,
       transcript: baselineSegment.transcript,
+      transcriptMetaJson: baselineSegment.transcriptMetaJson,
       createdAt: baselineSegment.createdAt,
     })
     .from(baselineSegment)
@@ -44,6 +46,7 @@ export function replaceDraftSegment(input: {
   audioRelativePath: string;
   durationMs: number | null;
   transcript: string | null;
+  transcriptMetaJson?: string | null;
 }): void {
   const db = getDb();
   db.transaction((tx) => {
@@ -64,6 +67,7 @@ export function replaceDraftSegment(input: {
         audioRelativePath: input.audioRelativePath,
         durationMs: input.durationMs,
         transcript: input.transcript,
+        transcriptMetaJson: input.transcriptMetaJson ?? null,
         sessionId: null,
         createdAt: Date.now(),
       })
@@ -89,6 +93,7 @@ export function listSessionSegments(sessionId: string): DraftSegmentRow[] {
       audioRelativePath: baselineSegment.audioRelativePath,
       durationMs: baselineSegment.durationMs,
       transcript: baselineSegment.transcript,
+      transcriptMetaJson: baselineSegment.transcriptMetaJson,
       createdAt: baselineSegment.createdAt,
     })
     .from(baselineSegment)

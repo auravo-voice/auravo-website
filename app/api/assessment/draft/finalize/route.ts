@@ -32,6 +32,9 @@ import { getServerPocketBase } from "@/lib/pocketbase/server";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
 import { buildSegmentTranscriptRows } from "@/lib/assessment/segment-transcripts";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
+import { getTranscriptionAdapter } from "@/lib/transcription";
+import { mergeSegmentTranscriptions } from "@/lib/assessment/merge-segment-transcriptions";
+import { parseSegmentTranscriptMeta } from "@/lib/assessment/segment-transcript-meta";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,13 +102,29 @@ export async function POST(req: Request) {
     .filter(Boolean)
     .join("\n\n");
 
-  // Run the canonical analysis on the concatenated audio. If real transcription is unavailable,
-  // gracefully degrade to the per-segment transcripts that were already produced live.
+  const stitched = mergeSegmentTranscriptions(
+    orderedDrafts.map((d) => ({
+      text: d.transcript ?? "",
+      durationMs: d.durationMs,
+      meta: parseSegmentTranscriptMeta(d.transcriptMetaJson),
+    })),
+  );
+  const adapterName = getTranscriptionAdapter().name;
+
+  // Run the canonical analysis on the concatenated audio. When every segment was transcribed at
+  // upload with word timings, skip re-Whisper on finalize (saves ~30–90s) while acoustic/VAD still
+  // run on the full concat WAV. Otherwise fall back to full concat transcription.
   let analysis;
   let degraded = false;
   try {
     analysis = await runAnalysis({
       audio: { mode: "concat", absolutePaths, totalDurationMs },
+      ...(stitched
+        ? {
+            preTranscribed: { ...stitched, adapter: adapterName },
+            reusePreTranscription: true,
+          }
+        : {}),
       context: {
         userId,
         runCoachSummary: true,

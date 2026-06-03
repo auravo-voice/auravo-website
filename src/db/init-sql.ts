@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS baseline_segment (
   audio_relative_path TEXT NOT NULL,
   duration_ms INTEGER,
   transcript TEXT,
+  transcript_meta_json TEXT,
   session_id TEXT,
   created_at INTEGER NOT NULL
 );

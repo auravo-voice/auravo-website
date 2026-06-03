@@ -31,6 +31,11 @@ export function getDb() {
   } catch {
     /* column already present */
   }
+  try {
+    sqlite.exec("ALTER TABLE baseline_segment ADD COLUMN transcript_meta_json TEXT;");
+  } catch {
+    /* column already present */
+  }
   singleton = drizzle(sqlite, { schema });
   return singleton;
 }

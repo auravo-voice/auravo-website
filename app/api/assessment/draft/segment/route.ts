@@ -7,6 +7,7 @@ import { getDataDir } from "@/db/client";
 import { ensureUserProfile } from "@/db/queries/user";
 import { isOnboardingGoalId } from "@/lib/coach/dashboard";
 import { getTranscriptionAdapter } from "@/lib/transcription";
+import { serializeSegmentTranscriptMeta } from "@/lib/assessment/segment-transcript-meta";
 import {
   AURAVO_USER_ID_COOKIE,
   auravoUserIdCookieOptions,
@@ -72,10 +73,12 @@ export async function POST(req: Request) {
   // Transcribe now so finalize is fast (the "15 second baseline" promise). If transcription fails we still keep
   // the file and persist an empty transcript so the learner can move on.
   let transcript: string | null = null;
+  let transcriptMetaJson: string | null = null;
   try {
     const adapter = getTranscriptionAdapter();
     const tr = await adapter.transcribe(absolutePath);
     transcript = tr.text;
+    transcriptMetaJson = serializeSegmentTranscriptMeta(tr);
   } catch {
     transcript = "";
   }
@@ -87,6 +90,7 @@ export async function POST(req: Request) {
     audioRelativePath: relativePath,
     durationMs: Number.isFinite(durationMs) ? durationMs : null,
     transcript,
+    transcriptMetaJson,
   });
 
   const rows = await listDraftSegments(userId);

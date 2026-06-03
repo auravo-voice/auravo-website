@@ -15,6 +15,8 @@ export type DraftSegmentRow = {
   audioRelativePath: string;
   durationMs: number | null;
   transcript: string | null;
+  /** Not stored in PocketBase yet — finalize uses full concat Whisper. */
+  transcriptMetaJson: string | null;
   createdAt: number;
 };
 
@@ -46,6 +48,7 @@ export async function listDraftSegments(userId: string): Promise<DraftSegmentRow
         audioRelativePath: segmentAudioRef(r as { id: string; audio?: string }),
         durationMs: typeof r.duration_ms === "number" ? r.duration_ms : null,
         transcript: typeof r.transcript === "string" ? r.transcript : null,
+        transcriptMetaJson: null,
         createdAt: pbTs(r),
       }));
   } catch (error) {
@@ -104,6 +107,7 @@ export async function listSessionSegments(sessionId: string): Promise<DraftSegme
         audioRelativePath: segmentAudioRef(r as { id: string; audio?: string }),
         durationMs: typeof r.duration_ms === "number" ? r.duration_ms : null,
         transcript: typeof r.transcript === "string" ? r.transcript : null,
+        transcriptMetaJson: null,
         createdAt: pbTs(r),
       }));
   } catch (error) {

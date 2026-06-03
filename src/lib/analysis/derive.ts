@@ -23,7 +23,7 @@ const TRAILING_PATTERN = /\b(right|you know|i mean|or something|i guess)[.?,]/gi
 export const MIN_PAUSE_MS = 350;
 export const LONG_PAUSE_MS = 1200;
 
-/** Output of {@link computeDerivedMetrics}. Drives both the scoring layer and the UI's "key metrics" row. */
+/** Derived speech metrics for scoring. Grammar flags for UI live in transcript-deep-analysis.ts. */
 export type DerivedMetrics = {
   // ── Transcript-level (always available)
   wordCount: number;

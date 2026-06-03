@@ -360,13 +360,6 @@ export function AssessmentMultiRecorder({ goalId }: Props) {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="rounded-xl border border-border/70 bg-muted/20 p-4 text-sm text-muted-foreground">
-            <p className="font-medium text-foreground">Microphone access</p>
-            <p className="mt-1">
-              We use your mic only while a recording is active. Audio stays on this machine under{" "}
-              <code className="rounded bg-muted px-1">data/uploads</code>; we do not upload it to a public service.
-            </p>
-          </div>
           <ol className="grid gap-2 text-sm sm:grid-cols-2">
             {ASSESSMENT_SEGMENT_KINDS.map((k, i) => (
               <li key={k} className="flex gap-2 rounded-md border border-border/60 p-2">

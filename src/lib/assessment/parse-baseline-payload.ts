@@ -1,4 +1,4 @@
-import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
+import type { BaselineAnalysis, GrammarAnalysisSnapshot, GrammarErrorType } from "@/lib/assessment/baseline-analysis-types";
 import type { AssessmentBaselinePayload, AssessmentCoachSummary } from "@/lib/assessment/baseline-results-payload";
 import type { SegmentTranscriptRow } from "@/lib/assessment/segment-transcripts";
 import {
@@ -20,7 +20,23 @@ export function parseBaselineAnalysis(o: unknown): BaselineAnalysis {
     if (!el || typeof el !== "object") continue;
     const r = el as Record<string, unknown>;
     if (typeof r.label !== "string" || typeof r.excerpt !== "string" || typeof r.suggestion !== "string") continue;
-    grammarFlags.push({ label: r.label, excerpt: r.excerpt, suggestion: r.suggestion });
+    const errorType =
+      r.errorType === "tense" ||
+      r.errorType === "article" ||
+      r.errorType === "preposition" ||
+      r.errorType === "agreement" ||
+      r.errorType === "word_choice" ||
+      r.errorType === "other"
+        ? (r.errorType as GrammarErrorType)
+        : undefined;
+    grammarFlags.push({
+      label: r.label,
+      excerpt: r.excerpt,
+      suggestion: r.suggestion,
+      correction: typeof r.correction === "string" ? r.correction : undefined,
+      errorType,
+      source: r.source === "groq" || r.source === "legacy" ? r.source : undefined,
+    });
   }
   const pronunciationTips: BaselineAnalysis["pronunciationTips"] = [];
   for (const el of pRaw) {
@@ -29,7 +45,45 @@ export function parseBaselineAnalysis(o: unknown): BaselineAnalysis {
     if (typeof r.heardAs !== "string" || typeof r.confidence !== "number" || typeof r.tip !== "string") continue;
     pronunciationTips.push({ heardAs: r.heardAs, confidence: r.confidence, tip: r.tip });
   }
-  return { grammarFlags, pronunciationTips };
+  const grammarAnalysis = parseGrammarAnalysisSnapshot(a.grammarAnalysis);
+  return { grammarFlags, pronunciationTips, ...(grammarAnalysis ? { grammarAnalysis } : {}) };
+}
+
+function parseGrammarAnalysisSnapshot(raw: unknown): GrammarAnalysisSnapshot | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  const errorsRaw = o.errors;
+  if (!Array.isArray(errorsRaw)) return undefined;
+  const errors: GrammarAnalysisSnapshot["errors"] = [];
+  for (const el of errorsRaw) {
+    if (!el || typeof el !== "object") continue;
+    const r = el as Record<string, unknown>;
+    if (
+      typeof r.error !== "string" ||
+      typeof r.correction !== "string" ||
+      typeof r.explanation !== "string" ||
+      (r.type !== "tense" &&
+        r.type !== "article" &&
+        r.type !== "preposition" &&
+        r.type !== "agreement" &&
+        r.type !== "word_choice" &&
+        r.type !== "other")
+    ) {
+      continue;
+    }
+    errors.push({
+      error: r.error,
+      correction: r.correction,
+      type: r.type,
+      explanation: r.explanation,
+    });
+  }
+  return {
+    errors,
+    score: typeof o.score === "number" && Number.isFinite(o.score) ? Math.round(o.score) : null,
+    summary: typeof o.summary === "string" ? o.summary : null,
+    strengths: Array.isArray(o.strengths) ? o.strengths.filter((x): x is string => typeof x === "string") : [],
+  };
 }
 
 function parseVoiceExplanations(json: Record<string, unknown>): AssessmentBaselinePayload["voiceExplanations"] {

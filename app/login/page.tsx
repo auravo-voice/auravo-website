@@ -4,7 +4,7 @@ import { Suspense } from "react";
 import { AuravoMark, VocaBadge } from "@/components/brand";
 import { VoiceWaveform } from "@/components/voice-waveform";
 import { AuthForm } from "@/components/auth/login-form";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata: Metadata = {
   title: "Sign in",
@@ -44,9 +44,6 @@ function AsideMiddleInner() {
       <h2 className="font-display text-3xl font-semibold leading-tight tracking-tight">
         Your voice, your infrastructure.
       </h2>
-      <p className="text-sm text-muted-foreground">
-        Google sign-in uses PocketBase; your practice data stays in local SQLite unless you switch storage.
-      </p>
       <VoiceWaveform className="h-16 w-56 opacity-90" />
     </div>
   );
@@ -58,7 +55,6 @@ function MainPanel() {
       <Card className="w-full max-w-md border-border/80 shadow-xl shadow-primary/5">
         <CardHeader className="space-y-1">
           <CardTitle className="font-display text-2xl">Welcome back</CardTitle>
-          <CardDescription>Continue with Google (same as mobile) or email.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>

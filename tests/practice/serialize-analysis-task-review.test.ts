@@ -15,6 +15,7 @@ function minimalAnalysis(over: Partial<CanonicalAnalysis> = {}): CanonicalAnalys
     scores: voice.scores,
     voice,
     deep: { grammarFlags: [], pronunciationTips: [] },
+    grammarAnalysis: null,
     conversation: null,
     conversationCoachNotes: [],
     coachSummary: {
@@ -71,5 +72,30 @@ describe("serializeAnalysisForPersistence taskReview", () => {
   it("serializes null taskReview for non-practice flows", () => {
     const json = JSON.parse(serializeAnalysisForPersistence(minimalAnalysis()));
     expect(json.taskReview).toBeNull();
+  });
+
+  it("persists grammarAnalysis snapshot when present", () => {
+    const json = JSON.parse(
+      serializeAnalysisForPersistence(
+        minimalAnalysis({
+          grammarAnalysis: {
+            errors: [
+              {
+                error: "I was go",
+                correction: "I went",
+                type: "tense",
+                explanation: "Use simple past for completed actions.",
+              },
+            ],
+            score: 91,
+            summary: "Strong overall with one tense slip.",
+            strengths: ["Articles used correctly throughout."],
+          },
+        }),
+      ),
+    );
+    expect(json.grammarAnalysis.score).toBe(91);
+    expect(json.grammarAnalysis.errors).toHaveLength(1);
+    expect(json.grammarAnalysis.strengths).toContain("Articles used correctly throughout.");
   });
 });

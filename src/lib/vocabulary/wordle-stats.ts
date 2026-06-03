@@ -3,7 +3,6 @@ import {
   getDailyWord,
   getUtcDateKey,
   isAllowedGuess,
-  MAX_GUESSES,
   WORD_LENGTH,
 } from "@/lib/vocabulary/words";
 

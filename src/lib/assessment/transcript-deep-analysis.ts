@@ -1,5 +1,12 @@
 import "server-only";
-import type { AsrWordHint, BaselineAnalysis, GrammarFlag, PronunciationTip } from "@/lib/assessment/baseline-analysis-types";
+import type { GrammarAnalysisResult } from "@/lib/analysis/grammar-analysis";
+import type {
+  AsrWordHint,
+  BaselineAnalysis,
+  GrammarErrorType,
+  GrammarFlag,
+  PronunciationTip,
+} from "@/lib/assessment/baseline-analysis-types";
 
 const GRAMMAR_RULES: { label: string; re: RegExp; suggestion: string }[] = [
   {
@@ -49,10 +56,28 @@ function pronunciationTipForWord(raw: string): string {
   return `“${w}” was less clear in this take — listen to a reference pronunciation, then say it slowly in two or three pieces before blending it into one smooth delivery.`;
 }
 
+function grammarErrorTypeLabel(type: GrammarErrorType): string {
+  switch (type) {
+    case "tense":
+      return "Tense";
+    case "article":
+      return "Article";
+    case "preposition":
+      return "Preposition";
+    case "agreement":
+      return "Agreement";
+    case "word_choice":
+      return "Word choice";
+    default:
+      return "Grammar";
+  }
+}
+
 /**
- * Heuristic grammar flags + ASR-confidence pronunciation hints (not clinical phonetic analysis).
+ * Legacy regex flags — used for UI display only ("Writing patterns to polish").
+ * Grammar SCORE is computed from Groq analysis in grammar-analysis.ts when available.
  */
-export function analyzeTranscriptDeep(text: string, asrWordHints?: AsrWordHint[]): BaselineAnalysis {
+export function detectLegacyGrammarFlags(text: string): GrammarFlag[] {
   const grammarFlags: GrammarFlag[] = [];
   const seen = new Set<string>();
 
@@ -65,7 +90,12 @@ export function analyzeTranscriptDeep(text: string, asrWordHints?: AsrWordHint[]
       const key = `${rule.label}:${excerpt}`;
       if (excerpt && !seen.has(key)) {
         seen.add(key);
-        grammarFlags.push({ label: rule.label, excerpt, suggestion: rule.suggestion });
+        grammarFlags.push({
+          label: rule.label,
+          excerpt,
+          suggestion: rule.suggestion,
+          source: "legacy",
+        });
       }
       if (!re.global) break;
     }
@@ -82,11 +112,51 @@ export function analyzeTranscriptDeep(text: string, asrWordHints?: AsrWordHint[]
           excerpt: `${s.slice(0, 80)}${s.length > 80 ? "…" : ""}`,
           suggestion:
             "This block reads like a very long run-on. Try splitting into two or three shorter sentences with periods, then read aloud with a breath between each.",
+          source: "legacy",
         });
       }
       break;
     }
   }
+
+  return grammarFlags;
+}
+
+function groqErrorsToFlags(analysis: GrammarAnalysisResult): GrammarFlag[] {
+  return analysis.errors.map((e) => ({
+    label: grammarErrorTypeLabel(e.type),
+    excerpt: e.error,
+    correction: e.correction,
+    suggestion: e.explanation,
+    errorType: e.type,
+    source: "groq" as const,
+  }));
+}
+
+function mergeGrammarFlags(legacy: GrammarFlag[], groq: GrammarFlag[]): GrammarFlag[] {
+  const merged = [...legacy];
+  const seen = new Set(legacy.map((f) => `${f.excerpt.toLowerCase()}|${f.suggestion}`));
+  for (const flag of groq) {
+    const key = `${flag.excerpt.toLowerCase()}|${flag.suggestion}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(flag);
+  }
+  return merged.slice(0, 20);
+}
+
+/**
+ * Heuristic grammar flags + ASR-confidence pronunciation hints (not clinical phonetic analysis).
+ * When Groq grammar analysis is available, merges those errors into the display list.
+ */
+export function analyzeTranscriptDeep(
+  text: string,
+  asrWordHints?: AsrWordHint[],
+  grammarAnalysis?: GrammarAnalysisResult | null,
+): BaselineAnalysis {
+  const legacyGrammarFlags = detectLegacyGrammarFlags(text);
+  const groqGrammarFlags = grammarAnalysis ? groqErrorsToFlags(grammarAnalysis) : [];
+  const grammarFlags = mergeGrammarFlags(legacyGrammarFlags, groqGrammarFlags);
 
   const pronunciationTips: PronunciationTip[] = [];
   const hints = asrWordHints ?? [];
@@ -105,5 +175,16 @@ export function analyzeTranscriptDeep(text: string, asrWordHints?: AsrWordHint[]
     });
   }
 
-  return { grammarFlags: grammarFlags.slice(0, 14), pronunciationTips };
+  return {
+    grammarFlags,
+    pronunciationTips,
+    grammarAnalysis: grammarAnalysis
+      ? {
+          errors: grammarAnalysis.errors,
+          score: grammarAnalysis.score,
+          summary: grammarAnalysis.summary,
+          strengths: grammarAnalysis.strengths,
+        }
+      : undefined,
+  };
 }

@@ -12,7 +12,6 @@ import {
   getWordleMeta,
   loadDayProgress,
   loadWordleStats,
-  recordLoss,
   recordWin,
   saveDayProgress,
   shareEmojiLine,
@@ -22,7 +21,7 @@ import {
   type TileState,
   type WordleStats,
 } from "@/lib/vocabulary/wordle-stats";
-import { isAllowedGuess, MAX_GUESSES, WORD_LENGTH } from "@/lib/vocabulary/words";
+import { isAllowedGuess, WORD_LENGTH } from "@/lib/vocabulary/words";
 
 const KEYBOARD: string[][] = [
   ["Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"],
@@ -105,12 +104,13 @@ function RowTiles({
 }
 
 export function WordleGame() {
+  const MIN_ROWS = 6;
   const meta = React.useMemo(() => getWordleMeta(new Date()), []);
   const { ymd, puzzleNumber, solution } = meta;
 
   const [rows, setRows] = React.useState<DayRow[]>([]);
   const [draft, setDraft] = React.useState("");
-  const [status, setStatus] = React.useState<"playing" | "won" | "lost">("playing");
+  const [status, setStatus] = React.useState<"playing" | "won">("playing");
   const [shake, setShake] = React.useState(false);
   const [toast, setToast] = React.useState<string | null>(null);
   const [animatingRow, setAnimatingRow] = React.useState<number | null>(null);
@@ -121,7 +121,7 @@ export function WordleGame() {
     const saved = loadDayProgress(ymd);
     if (saved && saved.rows.length > 0) {
       setRows(saved.rows);
-      setStatus(saved.status);
+      setStatus(saved.status === "won" ? "won" : "playing");
       setDraft("");
     }
   }, [ymd]);
@@ -161,13 +161,6 @@ export function WordleGame() {
         setStatus("won");
         saveDayProgress(ymd, { status: "won", rows: nextRows });
         recordWin(ymd, nextRows.length);
-        setStats(loadWordleStats());
-        return;
-      }
-      if (nextRows.length >= MAX_GUESSES) {
-        setStatus("lost");
-        saveDayProgress(ymd, { status: "lost", rows: nextRows });
-        recordLoss(ymd);
         setStats(loadWordleStats());
         return;
       }
@@ -220,7 +213,7 @@ export function WordleGame() {
   const shareText = React.useMemo(() => {
     if (status === "playing") return "";
     const lines = rows.map((r) => shareEmojiLine(r.evaluation));
-    return `Auravord #${puzzleNumber}\n${lines.join("\n")}\n${status === "won" ? `Solved in ${rows.length} tries` : "Better luck tomorrow"}`;
+    return `Auravord #${puzzleNumber}\n${lines.join("\n")}\nSolved in ${rows.length} tries`;
   }, [rows, status, puzzleNumber]);
 
   const copyShare = React.useCallback(async () => {
@@ -255,13 +248,12 @@ export function WordleGame() {
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Today&apos;s word</CardTitle>
           <CardDescription>
-            Guess the five-letter word in {MAX_GUESSES} tries. Any real dictionary word is allowed; the answer is
-            always communication-themed.
+            Guess the five-letter word with unlimited tries. Any real dictionary word is allowed.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className={cn("wordle-board", shake && "wordle-shake")}>
-            {Array.from({ length: MAX_GUESSES }).map((_, ri) => {
+            {Array.from({ length: Math.max(MIN_ROWS, rows.length + (status === "playing" ? 1 : 0)) }).map((_, ri) => {
               const row = rows[ri];
               const isCurrent = ri === rows.length && status === "playing";
               const guess = row?.guess ?? (isCurrent ? draft : "");
@@ -290,12 +282,10 @@ export function WordleGame() {
             <div className="space-y-4 rounded-2xl border border-primary/25 bg-primary/5 p-4">
               <div className="flex items-center gap-2 text-primary">
                 <Sparkles className="size-5 shrink-0" />
-                <p className="font-display text-lg font-semibold">
-                  {status === "won" ? "Nice solve." : `The word was "${solution.toUpperCase()}".`}
-                </p>
+                <p className="font-display text-lg font-semibold">Nice solve.</p>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-                <StatChip label="Attempts" value={status === "won" ? String(rows.length) : `${MAX_GUESSES}`} />
+                <StatChip label="Attempts" value={String(rows.length)} />
                 <StatChip label="Streak" value={String(stats.currentStreak)} />
                 <StatChip label="Win %" value={`${winRate}%`} />
                 <StatChip label="Avg guesses" value={stats.gamesWon ? String(avgGuesses) : "—"} />
@@ -309,9 +299,7 @@ export function WordleGame() {
                   <Link href="/dashboard">Back to dashboard</Link>
                 </Button>
               </div>
-              <p className="text-center text-xs text-muted-foreground">
-                Play tomorrow&apos;s challenge — a new word drops every UTC midnight.
-              </p>
+              <p className="text-center text-xs text-muted-foreground">A new word drops every UTC midnight.</p>
             </div>
           ) : null}
 

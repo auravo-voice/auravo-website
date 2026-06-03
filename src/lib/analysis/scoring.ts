@@ -3,6 +3,7 @@ import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import type { AcousticFeatures, AcousticResult } from "@/lib/audio/acoustic";
 import type { WordTiming, SegmentTiming } from "@/lib/transcription/types";
 import type { VadResult, VadFeatures } from "@/lib/audio/vad";
+import type { GrammarAnalysisResult } from "@/lib/analysis/grammar-analysis";
 import { computeDerivedMetrics, type DerivedMetrics } from "./derive";
 
 const clamp = (n: number, lo = 35, hi = 95) =>
@@ -232,7 +233,19 @@ const GRAMMAR_BAD_PHRASES = [
   /\balot\b/gi,
 ];
 
-export function scoreGrammar(d: DerivedMetrics, transcript: string): ScoreResult {
+export function scoreGrammar(
+  d: DerivedMetrics,
+  transcript: string,
+  grammarAnalysis?: GrammarAnalysisResult | null,
+): ScoreResult {
+  if (grammarAnalysis && grammarAnalysis.errors !== undefined) {
+    return {
+      score: grammarAnalysis.score,
+      explanation: grammarAnalysis.summary || "Grammar reviewed from your transcript.",
+      qualityFlag: "transcript_only",
+    };
+  }
+
   const flagged = GRAMMAR_BAD_PHRASES.reduce(
     (acc, re) => acc + (transcript.match(re)?.length ?? 0),
     0,
@@ -333,6 +346,8 @@ export function scoresFromAnalysis(input: {
   acoustic?: AcousticResult;
   /** Optional VAD result — when available, supersedes timing-gap pause math. */
   vad?: VadResult;
+  /** Groq grammar analysis — when present, drives the grammar score. */
+  grammarAnalysis?: GrammarAnalysisResult | null;
 }): VoiceAnalysis {
   const features =
     input.acoustic && input.acoustic.available ? input.acoustic.features : null;
@@ -351,7 +366,7 @@ export function scoresFromAnalysis(input: {
   const clarity = scoreClarity(derived, features);
   const confidence = scoreConfidence(derived, features);
   const pronunciation = scorePronunciationApprox(derived, features);
-  const grammar = scoreGrammar(derived, input.transcript);
+  const grammar = scoreGrammar(derived, input.transcript, input.grammarAnalysis);
   const vocabulary = scoreVocabulary(derived);
   const fillerWords = scoreFillerWords(derived);
 

@@ -9,7 +9,9 @@ import { Separator } from "@/components/ui/separator";
 import { SkillRadar } from "@/components/skill-radar";
 import type { RadarDimension } from "@/lib/coach/schemas";
 import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
+import type { GrammarErrorType, GrammarFlag } from "@/lib/assessment/baseline-analysis-types";
 import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
+import { Badge } from "@/components/ui/badge";
 import { CoachInsightCards } from "@/components/coach-insight-cards";
 import { ASSESSMENT_RESPONSE_SEGMENT_KINDS } from "@/lib/assessment/segments";
 import {
@@ -22,6 +24,58 @@ import {
 } from "@/lib/assessment/assessment-results-ui";
 
 export type { AssessmentBaselinePayload };
+
+function grammarErrorBadgeLabel(errorType?: GrammarErrorType): string {
+  switch (errorType) {
+    case "tense":
+      return "Tense error";
+    case "article":
+      return "Article error";
+    case "preposition":
+      return "Preposition error";
+    case "agreement":
+      return "Agreement error";
+    case "word_choice":
+      return "Word choice error";
+    default:
+      return "Grammar error";
+  }
+}
+
+function GrammarFlagCard({ flag }: { flag: GrammarFlag }) {
+  const isGroq = flag.source === "groq" && flag.correction;
+
+  if (isGroq) {
+    return (
+      <li className="rounded-xl border border-border/60 bg-muted/15 p-4">
+        <Badge variant="outline" className="mb-3 uppercase tracking-wide">
+          {grammarErrorBadgeLabel(flag.errorType)}
+        </Badge>
+        <p className="text-sm text-foreground">
+          <span aria-hidden className="mr-1.5">
+            ❌
+          </span>
+          &ldquo;{flag.excerpt}&rdquo;
+        </p>
+        <p className="mt-2 text-sm text-foreground">
+          <span aria-hidden className="mr-1.5">
+            ✅
+          </span>
+          &ldquo;{flag.correction}&rdquo;
+        </p>
+        <p className="mt-2 text-sm text-muted-foreground">{flag.suggestion}</p>
+      </li>
+    );
+  }
+
+  return (
+    <li className="rounded-xl border border-border/60 bg-muted/15 p-4">
+      <p className="font-medium text-foreground">{flag.label}</p>
+      <p className="mt-1 text-sm italic text-muted-foreground">&ldquo;{flag.excerpt}&rdquo;</p>
+      <p className="mt-2 text-muted-foreground">{flag.suggestion}</p>
+    </li>
+  );
+}
 
 function displayLabelForDimension(d: RadarDimension): string {
   return ASSESSMENT_DIMENSION_LABEL[d.key as DimensionKey] ?? d.label;
@@ -194,10 +248,22 @@ export function AssessmentResultsSummary({ results }: { results: AssessmentBasel
         <CardHeader>
           <CardTitle className="text-lg">Writing patterns to polish</CardTitle>
           <CardDescription>
-            Quick flags from your wording — useful nudges, not a full edit of everything you said.
+            {results.analysis.grammarAnalysis?.summary
+              ? results.analysis.grammarAnalysis.summary
+              : "Quick flags from your wording — useful nudges, not a full edit of everything you said."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {(results.analysis.grammarAnalysis?.strengths?.length ?? 0) > 0 ? (
+            <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <p className="text-sm font-medium text-foreground">What you did well</p>
+              <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                {results.analysis.grammarAnalysis!.strengths.map((s, i) => (
+                  <li key={`grammar-strength-${i}`}>• {s}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {results.analysis.grammarFlags.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               No common patterns jumped out this time. As you add more spoken answers, we will keep an eye out here.
@@ -205,14 +271,7 @@ export function AssessmentResultsSummary({ results }: { results: AssessmentBasel
           ) : (
             <ul className="space-y-3 text-sm">
               {results.analysis.grammarFlags.map((g, i) => (
-                <li
-                  key={`${g.label}-${i}-${g.excerpt.slice(0, 24)}`}
-                  className="rounded-xl border border-border/60 bg-muted/15 p-4"
-                >
-                  <p className="font-medium text-foreground">{g.label}</p>
-                  <p className="mt-1 text-sm italic text-muted-foreground">&ldquo;{g.excerpt}&rdquo;</p>
-                  <p className="mt-2 text-muted-foreground">{g.suggestion}</p>
-                </li>
+                <GrammarFlagCard key={`${g.label}-${i}-${g.excerpt.slice(0, 24)}`} flag={g} />
               ))}
             </ul>
           )}

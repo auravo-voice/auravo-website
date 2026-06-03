@@ -5,6 +5,7 @@ import {
   scoreClarity,
   scoreConfidence,
   scorePronunciationApprox,
+  scoreGrammar,
   scoresFromAnalysis,
 } from "@/lib/analysis/scoring";
 import { computeDerivedMetrics } from "@/lib/analysis/derive";
@@ -168,6 +169,35 @@ describe("scorePronunciationApprox", () => {
     });
     const r = scorePronunciationApprox(d, SAMPLE_ACOUSTIC);
     expect(r.qualityFlag).toBe("audio_grounded");
+  });
+});
+
+describe("scoreGrammar", () => {
+  it("uses Groq grammar analysis score when available", () => {
+    const d = computeDerivedMetrics({ transcript: "I was go to the meeting yesterday." });
+    const r = scoreGrammar(d, "I was go to the meeting yesterday.", {
+      errors: [
+        {
+          error: "I was go",
+          correction: "I went",
+          type: "tense",
+          explanation: "Past tense requires the simple past form.",
+        },
+      ],
+      score: 88,
+      summary: "Mostly solid grammar with one tense slip.",
+      strengths: ["Clear subject-verb structure in most clauses."],
+    });
+    expect(r.score).toBe(88);
+    expect(r.explanation).toContain("Mostly solid grammar");
+    expect(r.qualityFlag).toBe("transcript_only");
+  });
+
+  it("falls back to heuristic scoring without Groq analysis", () => {
+    const d = computeDerivedMetrics({ transcript: "I could of done it better." });
+    const r = scoreGrammar(d, "I could of done it better.");
+    expect(r.explanation.toLowerCase()).toContain("non-standard");
+    expect(r.qualityFlag).toBe("transcript_only");
   });
 });
 

@@ -18,7 +18,9 @@ function smtpTransportOptions(): {
   secure: boolean;
   auth?: { user: string; pass: string };
 } {
-  const host = process.env.SMTP_HOST?.trim() || "127.0.0.1";
+  const host =
+    process.env.SMTP_HOST?.trim() ||
+    (process.env.NODE_ENV === "production" ? "stalwart" : "127.0.0.1");
   const portRaw = process.env.SMTP_PORT?.trim() ?? "587";
   const port = Number.parseInt(portRaw, 10);
   const secure = process.env.SMTP_SECURE === "true";

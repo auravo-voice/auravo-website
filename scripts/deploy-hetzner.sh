@@ -26,6 +26,12 @@ fi
 
 : "${GROQ_API_KEY:?Set GROQ_API_KEY in $ENV_FILE before deploy}"
 
+SMTP_HOST="${SMTP_HOST:-stalwart}"
+SMTP_PORT="${SMTP_PORT:-587}"
+SMTP_SECURE="${SMTP_SECURE:-false}"
+QUICK_ANALYSIS_LEAD_FROM="${QUICK_ANALYSIS_LEAD_FROM:-support@auravo.ai}"
+QUICK_ANALYSIS_LEAD_TO="${QUICK_ANALYSIS_LEAD_TO:-support@auravo.ai}"
+
 echo "==> Pull latest"
 git pull origin main
 
@@ -47,7 +53,7 @@ echo "==> Restart container"
 podman stop "$CONTAINER" 2>/dev/null || true
 podman rm "$CONTAINER" 2>/dev/null || true
 
-podman run -d --name "$CONTAINER" \
+podman run -d --replace --name "$CONTAINER" \
   --network "$NETWORK" \
   -p 127.0.0.1:3001:3000 \
   -v "${DATA_VOLUME}:/data" \
@@ -60,17 +66,16 @@ podman run -d --name "$CONTAINER" \
   -e "GROQ_API_KEY=$GROQ_API_KEY" \
   -e "GROQ_MODEL=$GROQ_MODEL" \
   -e "DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}" \
-  -e "SMTP_HOST=${SMTP_HOST:-stalwart}" \
-  -e "SMTP_PORT=${SMTP_PORT:-587}" \
-  -e "SMTP_SECURE=${SMTP_SECURE:-false}" \
+  -e "SMTP_HOST=$SMTP_HOST" \
+  -e "SMTP_PORT=$SMTP_PORT" \
+  -e "SMTP_SECURE=$SMTP_SECURE" \
   -e "SMTP_USER=${SMTP_USER:-}" \
   -e "SMTP_PASS=${SMTP_PASS:-}" \
-  -e "QUICK_ANALYSIS_LEAD_FROM=${QUICK_ANALYSIS_LEAD_FROM:-support@auravo.ai}" \
-  -e "QUICK_ANALYSIS_LEAD_TO=${QUICK_ANALYSIS_LEAD_TO:-support@auravo.ai}" \
+  -e "QUICK_ANALYSIS_LEAD_FROM=$QUICK_ANALYSIS_LEAD_FROM" \
+  -e "QUICK_ANALYSIS_LEAD_TO=$QUICK_ANALYSIS_LEAD_TO" \
   -e FASTER_WHISPER_MODEL=small \
   -e TRANSCRIPTION_PROVIDER=faster-whisper \
   -e FASTER_WHISPER_PYTHON=/app/.venv-transcription/bin/python \
-  --replace \
   "$IMAGE"
 
 echo "==> Health checks"

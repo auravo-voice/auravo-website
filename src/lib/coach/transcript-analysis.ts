@@ -2,7 +2,12 @@ import "server-only";
 
 import type { DerivedMetrics } from "@/lib/analysis/derive";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
-import { getGroqApiKey, getGroqCoachTimeoutMs, getGroqModel } from "@/lib/groq/env";
+import { normalizeCollapseSegments } from "@/lib/audio/collapse-segments";
+import {
+  groqTranscriptInsightsSchema,
+  type GroqTranscriptInsightsPayload,
+} from "@/lib/coach/transcript-insights-schema";
+import { groqChatStructured } from "@/lib/groq/chat-json";
 
 export type CoachingPattern = {
   pattern: string;
@@ -31,61 +36,32 @@ export const EMPTY_TRANSCRIPT_INSIGHTS: TranscriptInsights = {
   strength: null,
 };
 
-function parseInsights(raw: string): TranscriptInsights {
-  const clean = raw.replace(/```json|```/g, "").trim();
-  const start = clean.indexOf("{");
-  const end = clean.lastIndexOf("}");
-  const jsonStr = start >= 0 && end > start ? clean.slice(start, end + 1) : clean;
-  const o = JSON.parse(jsonStr) as Record<string, unknown>;
+function formatCollapseNote(acoustic: AcousticFeatures): string {
+  const segs = normalizeCollapseSegments(acoustic.intensity.collapseSegments);
+  if (segs.length === 0) return "No sustained voice-energy dips detected";
+  const top = [...segs].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, 4);
+  const times = top.map((s) => `${s.start}s–${s.end}s`).join(", ");
+  if (segs.length <= 4) return `${segs.length} sustained dip(s): ${times}`;
+  return `${segs.length} sustained dip(s); longest: ${times}`;
+}
 
-  const patterns: CoachingPattern[] = [];
-  if (Array.isArray(o.patterns)) {
-    for (const p of o.patterns) {
-      if (!p || typeof p !== "object") continue;
-      const row = p as Record<string, unknown>;
-      if (
-        typeof row.pattern === "string" &&
-        typeof row.evidence === "string" &&
-        typeof row.impact === "string" &&
-        typeof row.fix === "string"
-      ) {
-        patterns.push({
-          pattern: row.pattern.trim(),
-          evidence: row.evidence.trim(),
-          impact: row.impact.trim(),
-          fix: row.fix.trim(),
-        });
-      }
-    }
-  }
+function mapGroqPayload(data: GroqTranscriptInsightsPayload): TranscriptInsights {
+  const acousticRaw = data.acoustic_patterns ?? data.acousticPatterns ?? [];
+  const acoustic_patterns: AcousticCoachingPattern[] = acousticRaw.map((p) => ({
+    pattern: p.pattern.trim(),
+    timestamps: p.timestamps.trim(),
+    fix: p.fix.trim(),
+  }));
 
-  const acoustic_patterns: AcousticCoachingPattern[] = [];
-  const acousticRaw = o.acoustic_patterns ?? o.acousticPatterns;
-  if (Array.isArray(acousticRaw)) {
-    for (const p of acousticRaw) {
-      if (!p || typeof p !== "object") continue;
-      const row = p as Record<string, unknown>;
-      if (
-        typeof row.pattern === "string" &&
-        typeof row.timestamps === "string" &&
-        typeof row.fix === "string"
-      ) {
-        acoustic_patterns.push({
-          pattern: row.pattern.trim(),
-          timestamps: row.timestamps.trim(),
-          fix: row.fix.trim(),
-        });
-      }
-    }
-  }
+  const patterns: CoachingPattern[] = (data.patterns ?? []).map((p) => ({
+    pattern: p.pattern.trim(),
+    evidence: p.evidence.trim(),
+    impact: p.impact.trim(),
+    fix: p.fix.trim(),
+  }));
 
-  const biggest_issue =
-    typeof o.biggest_issue === "string"
-      ? o.biggest_issue.trim()
-      : typeof o.biggestIssue === "string"
-        ? o.biggestIssue.trim()
-        : null;
-  const strength = typeof o.strength === "string" ? o.strength.trim() : null;
+  const biggest_issue = (data.biggest_issue ?? data.biggestIssue)?.trim() || null;
+  const strength = data.strength?.trim() || null;
 
   return { patterns, acoustic_patterns, biggest_issue, strength };
 }
@@ -109,11 +85,7 @@ export async function callGroqForCoaching(
       rhythm: { tempoVariation: 0, clarityScore: 0 },
     } satisfies AcousticFeatures);
 
-  const collapseNote =
-    acoustic.intensity.collapseSegments.length > 0
-      ? `Voice energy collapsed at: ${acoustic.intensity.collapseSegments.map((s) => `${s.start}s-${s.end}s`).join(", ")}`
-      : "No significant energy collapse detected";
-
+  const collapseNote = formatCollapseNote(acoustic);
   const topFillers =
     derivedMetrics.topFillers.length > 0 ? derivedMetrics.topFillers.join(", ") : "none";
 
@@ -121,23 +93,22 @@ export async function callGroqForCoaching(
 You are analyzing a speech transcript for a coaching app.
 The speaker's goal is: ${userGoal}
 
-Read this transcript and identify ONLY non-obvious patterns — things that 
-wouldn't show up in word counts or timing metrics.
+Read this transcript and identify ONLY non-obvious patterns — things that would not show up in word counts or timing metrics alone.
 
 Look specifically for:
-- Hedging language and where it clusters (e.g. "I think maybe", "sort of", "I guess")
+- Hedging language clusters (e.g. "I think maybe", "sort of", "I guess")
 - Sentence structure breakdown under complexity
 - Confidence signals (trailing off, over-explaining, self-correction)
 - Vocabulary mismatch (formal/informal inconsistency)
 - Logical flow issues (jumping topics, incomplete thoughts)
 
-Acoustic context already computed (use this to confirm patterns):
+Acoustic context (already computed — use to confirm, do not invent timestamps):
 - Pitch range: ${acoustic.pitch.range}Hz (below 50Hz = monotone)
 - Monotone: ${acoustic.pitch.isMonotone}
 - ${collapseNote}
 - Clarity score: ${acoustic.rhythm.clarityScore}
 
-Known surface metrics (do not repeat these, find what's beyond them):
+Known surface metrics (do not repeat these verbatim; find what is beyond them):
 - WPM: ${derivedMetrics.wpm ?? "unknown"}
 - Filler rate: ${derivedMetrics.fillerRatePerMin.toFixed(1)}/min
 - Top fillers: ${topFillers}
@@ -145,64 +116,26 @@ Known surface metrics (do not repeat these, find what's beyond them):
 - Trailing count: ${derivedMetrics.trailingCount}
 - Restate count: ${derivedMetrics.restateCount}
 
-Return JSON only, no preamble, no markdown backticks:
-{
-  "patterns": [
-    {
-      "pattern": "name of the pattern",
-      "evidence": "exact short quote from transcript showing it",
-      "impact": "why this matters for the speaker's goal",
-      "fix": "one concrete thing to practice this week"
-    }
-  ],
-  "acoustic_patterns": [
-    {
-      "pattern": "e.g. voice energy drops when hedging",
-      "timestamps": "e.g. 0:45-1:10",
-      "fix": "one concrete thing"
-    }
-  ],
-  "biggest_issue": "single most important thing to work on",
-  "strength": "one genuine thing they did well"
-}
+Return JSON with keys: patterns (array), acoustic_patterns (array), biggest_issue (string), strength (string).
+Each pattern needs: pattern, evidence (short quote), impact, fix.
+Keep biggest_issue and strength to one sentence each, actionable and encouraging.
 
 Transcript:
 ${transcript.slice(0, 3000)}
 `.trim();
 
-  const model = getGroqModel();
-  console.log(`Groq coaching call: model=${model}, transcript_length=${transcript.length}`);
-
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${getGroqApiKey()}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1000,
-      temperature: 0.3,
-      messages: [{ role: "user", content: userMessage }],
-    }),
-    cache: "no-store",
-    signal: AbortSignal.timeout(getGroqCoachTimeoutMs()),
-  });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Groq API error: ${response.status} ${error.slice(0, 300)}`);
-  }
-
-  const data = (await response.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const text = data.choices?.[0]?.message?.content ?? "";
+  console.log(`Groq coaching call: transcript_length=${transcript.length}`);
 
   try {
-    return parseInsights(text);
-  } catch {
-    console.error("Failed to parse Groq response:", text.slice(0, 500));
+    const data = await groqChatStructured({
+      messages: [{ role: "user", content: userMessage }],
+      schema: groqTranscriptInsightsSchema,
+      maxTokens: 2048,
+      temperature: 0.3,
+    });
+    return mapGroqPayload(data);
+  } catch (e) {
+    console.error("[callGroqForCoaching] structured Groq failed:", e);
     return EMPTY_TRANSCRIPT_INSIGHTS;
   }
 }

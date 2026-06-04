@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseAudioFeatureCacheMax, lruMapSetLimited } from "@/lib/audio/audio-feature-cache";
+import { normalizeCollapseSegments } from "@/lib/audio/collapse-segments";
 import { resolveTranscriptionPython } from "@/lib/transcription/python-path";
 
 const execFileAsync = promisify(execFile);
@@ -100,6 +101,7 @@ function parseAcousticStdout(raw: string): AcousticResult {
       collapseSegments.push({ start: num(row.start), end: num(row.end) });
     }
   }
+  const normalizedCollapses = normalizeCollapseSegments(collapseSegments);
 
   const timeline: { t: number; hz: number }[] = [];
   const tl = pitch.timeline;
@@ -122,7 +124,7 @@ function parseAcousticStdout(raw: string): AcousticResult {
       },
       intensity: {
         mean: num(intensity.mean),
-        collapseSegments,
+        collapseSegments: normalizedCollapses,
       },
       rhythm: {
         tempoVariation: num(rhythm.tempo_variation ?? rhythm.tempoVariation),

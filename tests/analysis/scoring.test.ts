@@ -80,7 +80,7 @@ describe("scorePace", () => {
     const withCollapse = scorePace(d, acoustic);
     const without = scorePace(d, null);
     expect(withCollapse.score).toBeLessThanOrEqual(without.score);
-    expect(withCollapse.explanation.toLowerCase()).toContain("energy");
+    expect(withCollapse.explanation.toLowerCase()).toContain("noticeable");
   });
 });
 

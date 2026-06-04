@@ -4,6 +4,7 @@ import type { AcousticFeatures, AcousticResult } from "@/lib/audio/acoustic";
 import type { WordTiming, SegmentTiming } from "@/lib/transcription/types";
 import type { VadResult, VadFeatures } from "@/lib/audio/vad";
 import type { GrammarAnalysisResult } from "@/lib/analysis/grammar-analysis";
+import { significantCollapseCount } from "@/lib/audio/collapse-segments";
 import { computeDerivedMetrics, type DerivedMetrics } from "./derive";
 
 const clamp = (n: number, lo = 35, hi = 95) =>
@@ -55,9 +56,12 @@ export function scorePace(d: DerivedMetrics, acoustic: AcousticFeatures | null =
   }
   const wpm = d.wpm;
   let raw = plateauScore(wpm, TARGET_WPM_LOW, TARGET_WPM_HIGH, SOFT_WPM_LOW - 30, SOFT_WPM_HIGH + 40);
-  const collapseN = acoustic?.intensity.collapseSegments.length ?? d.energyCollapseCount;
+  const collapseN =
+    acoustic != null
+      ? significantCollapseCount(acoustic.intensity.collapseSegments)
+      : d.energyCollapseCount;
   if (collapseN > 0) {
-    raw -= Math.min(25, collapseN * 8);
+    raw -= Math.min(18, collapseN * 5);
   }
   let explanation: string;
   if (wpm < SOFT_WPM_LOW) {
@@ -71,7 +75,11 @@ export function scorePace(d: DerivedMetrics, acoustic: AcousticFeatures | null =
     explanation = `You averaged ${Math.round(wpm)} WPM — ${dir} of the ${TARGET_WPM_LOW}–${TARGET_WPM_HIGH} target.`;
   }
   if (collapseN > 0) {
-    explanation += ` Voice energy dropped in ${collapseN} segment${collapseN === 1 ? "" : "s"}, which can make pacing feel uneven.`;
+    const dipPhrase =
+      collapseN === 1
+        ? "one noticeable dip in voice energy"
+        : `${collapseN} noticeable dips in voice energy`;
+    explanation += ` There ${collapseN === 1 ? "was" : "were"} ${dipPhrase} — steadier volume on key phrases will help pacing feel more even.`;
   }
   return {
     score: clamp(raw),

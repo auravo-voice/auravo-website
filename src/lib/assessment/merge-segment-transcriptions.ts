@@ -7,17 +7,24 @@ export type SegmentForMerge = {
   meta: SegmentTranscriptMeta | null;
 };
 
-function offsetBefore(segments: SegmentForMerge[], index: number): number {
+function offsetBefore(
+  segments: SegmentForMerge[],
+  index: number,
+  gapSecBetweenSegments: number,
+): number {
   let offset = 0;
   for (let i = 0; i < index; i++) {
     const seg = segments[i]!;
     if (seg.durationMs != null && seg.durationMs > 0) {
       offset += seg.durationMs / 1000;
-      continue;
+    } else {
+      const last = seg.meta?.wordTimings?.at(-1);
+      if (last) offset += last.end;
+      else if (seg.meta?.durationSec) offset += seg.meta.durationSec;
     }
-    const last = seg.meta?.wordTimings?.at(-1);
-    if (last) offset += last.end;
-    else if (seg.meta?.durationSec) offset += seg.meta.durationSec;
+    if (gapSecBetweenSegments > 0 && i < index - 1) {
+      offset += gapSecBetweenSegments;
+    }
   }
   return offset;
 }
@@ -26,7 +33,11 @@ function offsetBefore(segments: SegmentForMerge[], index: number): number {
  * Merges per-segment Whisper output into one {@link TranscriptionResult} with timeline offsets so
  * finalize can skip re-transcribing the concatenated WAV without losing WPM / pause metrics.
  */
-export function mergeSegmentTranscriptions(segments: SegmentForMerge[]): TranscriptionResult | null {
+export function mergeSegmentTranscriptions(
+  segments: SegmentForMerge[],
+  options?: { gapSecBetweenSegments?: number },
+): TranscriptionResult | null {
+  const gapSec = options?.gapSecBetweenSegments ?? 0;
   const trimmed = segments.map((s) => s.text.trim());
   if (trimmed.some((t) => t.length < 1)) return null;
 
@@ -35,7 +46,7 @@ export function mergeSegmentTranscriptions(segments: SegmentForMerge[]): Transcr
 
   const text = trimmed.join("\n\n");
   const wordTimings = segments.flatMap((seg, index) => {
-    const offset = offsetBefore(segments, index);
+    const offset = offsetBefore(segments, index, gapSec);
     return (seg.meta!.wordTimings ?? []).map((w) => ({
       ...w,
       start: w.start + offset,
@@ -44,7 +55,7 @@ export function mergeSegmentTranscriptions(segments: SegmentForMerge[]): Transcr
   });
 
   const whisperSegments = segments.flatMap((seg, index) => {
-    const offset = offsetBefore(segments, index);
+    const offset = offsetBefore(segments, index, gapSec);
     return (seg.meta!.segments ?? []).map((s) => ({
       ...s,
       start: s.start + offset,

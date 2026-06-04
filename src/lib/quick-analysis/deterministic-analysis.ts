@@ -4,7 +4,6 @@ import { rm } from "node:fs/promises";
 
 import { scoresFromAnalysis } from "@/lib/analysis/scoring";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
-import { withQuickAnalysisWhisperModel } from "@/lib/quick-analysis/whisper-model";
 import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 import { getTranscriptionAdapter } from "@/lib/transcription";
 import type { WordTiming } from "@/lib/transcription/types";
@@ -43,22 +42,20 @@ export async function runDeterministicQuickAnalysis(audio: Blob): Promise<Determ
   const { absolutePath } = await writeTempAudioFile(id, audio);
 
   try {
-    return await withQuickAnalysisWhisperModel(async () => {
-      const adapter = getTranscriptionAdapter();
-      const transcription = await adapter.transcribe(absolutePath);
-      const transcript = transcription.text.trim();
-      const voice = scoresFromAnalysis({
-        transcript,
-        wordTimings: transcription.wordTimings,
-        segments: transcription.segments,
-        durationSec: transcription.durationSec ?? null,
-      });
-      return {
-        scores: voice.scores,
-        transcript,
-        lowConfidenceWords: lowConfidenceTokens(transcription.wordTimings),
-      };
+    const adapter = getTranscriptionAdapter();
+    const transcription = await adapter.transcribe(absolutePath);
+    const transcript = transcription.text.trim();
+    const voice = scoresFromAnalysis({
+      transcript,
+      wordTimings: transcription.wordTimings,
+      segments: transcription.segments,
+      durationSec: transcription.durationSec ?? null,
     });
+    return {
+      scores: voice.scores,
+      transcript,
+      lowConfidenceWords: lowConfidenceTokens(transcription.wordTimings),
+    };
   } finally {
     await rm(absolutePath, { force: true }).catch(() => {});
   }

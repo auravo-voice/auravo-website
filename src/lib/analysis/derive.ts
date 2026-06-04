@@ -1,5 +1,6 @@
 import type { WordTiming, SegmentTiming } from "@/lib/transcription/types";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
+import { significantCollapseCount } from "@/lib/audio/collapse-segments";
 import { deriveVadStats, type VadFeatures } from "@/lib/audio/vad";
 import { countFillerWords, topFillerTokens } from "@/lib/analysis/filler-words";
 
@@ -166,8 +167,8 @@ function pitchVariationFrom(features: AcousticFeatures): number | null {
 
 /** Fewer intensity collapses + steadier mean intensity → higher stability. */
 function loudnessStabilityFrom(features: AcousticFeatures): number | null {
-  const collapses = features.intensity.collapseSegments.length;
-  const penalty = Math.min(1, collapses * 0.2);
+  const collapses = significantCollapseCount(features.intensity.collapseSegments);
+  const penalty = Math.min(1, collapses * 0.12);
   const meanNorm = clamp01(features.intensity.mean / 80);
   return clamp01(meanNorm * (1 - penalty));
 }

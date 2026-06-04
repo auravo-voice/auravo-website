@@ -14,6 +14,27 @@ import numpy as np
 import parselmouth
 from parselmouth.praat import call
 
+COLLAPSE_MIN_DURATION_SEC = 0.35
+COLLAPSE_MERGE_GAP_SEC = 0.12
+
+
+def _normalize_collapse_segments(
+    segments: list[dict[str, float]],
+) -> list[dict[str, float]]:
+    filtered = [
+        s
+        for s in segments
+        if s["end"] > s["start"] and (s["end"] - s["start"]) >= COLLAPSE_MIN_DURATION_SEC
+    ]
+    filtered.sort(key=lambda s: s["start"])
+    merged: list[dict[str, float]] = []
+    for seg in filtered:
+        if merged and seg["start"] - merged[-1]["end"] <= COLLAPSE_MERGE_GAP_SEC:
+            merged[-1]["end"] = max(merged[-1]["end"], seg["end"])
+        else:
+            merged.append({"start": seg["start"], "end": seg["end"]})
+    return merged
+
 
 def analyze_audio(wav_path: str) -> dict:
     snd = parselmouth.Sound(wav_path)
@@ -39,6 +60,11 @@ def analyze_audio(wav_path: str) -> dict:
         elif v >= collapse_threshold and in_collapse and start_t is not None:
             in_collapse = False
             collapse_segments.append({"start": round(start_t, 2), "end": round(float(t), 2)})
+    if in_collapse and start_t is not None and len(intensity_times) > 0:
+        collapse_segments.append(
+            {"start": round(start_t, 2), "end": round(float(intensity_times[-1]), 2)}
+        )
+    collapse_segments = _normalize_collapse_segments(collapse_segments)
 
     pitch_range = (
         float(np.percentile(pitch_values_clean, 90) - np.percentile(pitch_values_clean, 10))
@@ -50,6 +76,7 @@ def analyze_audio(wav_path: str) -> dict:
     y, sr = librosa.load(wav_path, sr=None)
     rms = librosa.feature.rms(y=y)[0]
     tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
+    tempo_scalar = float(np.asarray(tempo).flat[0]) if np.size(tempo) else 0.0
     spectral_contrast = librosa.feature.spectral_contrast(y=y, sr=sr)
     clarity_score = float(np.mean(spectral_contrast))
 
@@ -72,7 +99,7 @@ def analyze_audio(wav_path: str) -> dict:
             "collapse_segments": collapse_segments,
         },
         "rhythm": {
-            "tempo_variation": float(tempo),
+            "tempo_variation": tempo_scalar,
             "clarity_score": clarity_score,
         },
     }

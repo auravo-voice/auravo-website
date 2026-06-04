@@ -81,7 +81,13 @@ export type RunAnalysisInput = {
   /** Path to a single audio file relative to `data/`, OR a sequence to concat. Use one or the other. */
   audio?:
     | { mode: "single"; absolutePath: string; durationMs?: number | null }
-    | { mode: "concat"; absolutePaths: string[]; totalDurationMs?: number | null };
+    | {
+        mode: "concat";
+        absolutePaths: string[];
+        totalDurationMs?: number | null;
+        /** Optional silence between clips (e.g. Quick Analysis Q3–Q5) to avoid false energy dips at joins. */
+        gapMs?: number;
+      };
   /**
    * Pre-transcribed result when audio is not provided, or when {@link reusePreTranscription} is true
    * alongside audio (assessment finalize fast path).
@@ -149,7 +155,9 @@ async function resolveAudio(input: RunAnalysisInput["audio"]): Promise<{
   }
   const abs = await Promise.all(input.absolutePaths.map((p) => asAbsolute(p)));
   const featureCacheKey = await fingerprintAudioInputs(abs);
-  const { wavPath, workDir } = await concatAudioToWav(abs);
+  const { wavPath, workDir } = await concatAudioToWav(abs, {
+    gapMs: input.mode === "concat" ? input.gapMs : undefined,
+  });
   return {
     audioPath: wavPath,
     totalDurationMs: input.totalDurationMs ?? null,

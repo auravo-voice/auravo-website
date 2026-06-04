@@ -1,18 +1,12 @@
 import { NextResponse } from "next/server";
-import { rm } from "node:fs/promises";
 
-import { runAnalysis } from "@/lib/analysis/run-analysis";
 import { runDeterministicQuickAnalysis } from "@/lib/quick-analysis/deterministic-analysis";
+import { runQuickAnalysisFull } from "@/lib/quick-analysis/run-full-analysis";
 import { scoreQuickAnalysisFromTranscript } from "@/lib/quick-analysis/score-from-transcript";
-import { withQuickAnalysisWhisperModel } from "@/lib/quick-analysis/whisper-model";
-import { concatAudioToWav } from "@/lib/audio/concat";
-import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const QUICK_ANALYSIS_USER_ID = "00000000-0000-0000-0000-000000000099";
 
 export async function POST(req: Request) {
   let form: FormData;
@@ -69,42 +63,19 @@ export async function POST(req: Request) {
     const prefixRaw = form.get("transcriptPrefix");
     const transcriptPrefix = typeof prefixRaw === "string" ? prefixRaw.trim() : "";
 
-    const tempPaths: string[] = [];
-    let workDir: string | null = null;
     try {
-      for (let i = 0; i < blobs.length; i++) {
-        const { absolutePath } = await writeTempAudioFile(`qa-full-${Date.now()}-${i}`, blobs[i]!);
-        tempPaths.push(absolutePath);
-      }
-      const { wavPath, workDir: dir } = await concatAudioToWav(tempPaths);
-      workDir = dir;
-
-      const analysis = await withQuickAnalysisWhisperModel(() =>
-        runAnalysis({
-          audio: { mode: "single", absolutePath: wavPath },
-          context: {
-            userId: QUICK_ANALYSIS_USER_ID,
-            runCoachSummary: true,
-            learnerContextHint: { displayName: "Guest" },
-          },
-        }),
-      );
-
-      const transcript = transcriptPrefix
-        ? `${transcriptPrefix}\n\n${analysis.transcript}`.trim()
-        : analysis.transcript;
-
+      const result = await runQuickAnalysisFull(blobs, transcriptPrefix);
       return NextResponse.json({
-        scores: analysis.scores,
-        transcript,
+        scores: result.scores,
+        transcript: result.transcript,
         coachSummary: {
-          biggestIssue: analysis.coachSummary.biggestIssue,
-          strength: analysis.coachSummary.strength,
-          patterns: analysis.coachSummary.patterns,
-          acousticPatterns: analysis.coachSummary.acousticPatterns,
-          summary: analysis.coachSummary.summary,
-          strengths: analysis.coachSummary.strengths,
-          improvementAreas: analysis.coachSummary.improvementAreas,
+          biggestIssue: result.coachSummary.biggestIssue,
+          strength: result.coachSummary.strength,
+          patterns: result.coachSummary.patterns,
+          acousticPatterns: result.coachSummary.acousticPatterns,
+          summary: result.coachSummary.summary,
+          strengths: result.coachSummary.strengths,
+          improvementAreas: result.coachSummary.improvementAreas,
         },
       });
     } catch (e) {
@@ -118,9 +89,6 @@ export async function POST(req: Request) {
       console.error("[quick-analysis/analyze] full mode failed:", e);
       const msg = e instanceof Error ? e.message : "Full analysis failed.";
       return NextResponse.json({ error: msg }, { status: 500 });
-    } finally {
-      await Promise.all(tempPaths.map((p) => rm(p, { force: true }).catch(() => {})));
-      if (workDir) await rm(workDir, { recursive: true, force: true }).catch(() => {});
     }
   }
 

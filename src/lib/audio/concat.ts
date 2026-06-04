@@ -19,7 +19,7 @@ const execFileAsync = promisify(execFile);
  */
 export async function concatAudioToWav(
   inputAbsolutePaths: string[],
-  options: { outDir?: string; fileName?: string } = {},
+  options: { outDir?: string; fileName?: string; gapMs?: number } = {},
 ): Promise<{ wavPath: string; workDir: string }> {
   if (inputAbsolutePaths.length === 0) {
     throw new Error("concatAudioToWav: no input files");
@@ -30,9 +30,38 @@ export async function concatAudioToWav(
   }
   const workDir =
     options.outDir ?? (await mkdtemp(path.join(tmpdir(), "auravo-concat-")));
+  const gapMs = options.gapMs ?? 0;
+  let pathsForConcat = inputAbsolutePaths;
+  if (gapMs > 0 && inputAbsolutePaths.length > 1) {
+    const silencePath = path.join(workDir, "gap-silence.wav");
+    await execFileAsync(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "anullsrc=r=16000:cl=mono",
+        "-t",
+        String(gapMs / 1000),
+        "-c:a",
+        "pcm_s16le",
+        silencePath,
+      ],
+      { timeout: 30_000, maxBuffer: 4 * 1024 * 1024 },
+    );
+    pathsForConcat = [];
+    for (let i = 0; i < inputAbsolutePaths.length; i++) {
+      pathsForConcat.push(inputAbsolutePaths[i]!);
+      if (i < inputAbsolutePaths.length - 1) pathsForConcat.push(silencePath);
+    }
+  }
   const listPath = path.join(workDir, "inputs.txt");
   // ffmpeg concat-demuxer expects single-quoted, escaped paths.
-  const listBody = inputAbsolutePaths
+  const listBody = pathsForConcat
     .map((p) => `file '${p.replace(/'/g, "'\\''")}'`)
     .join("\n");
   await writeFile(listPath, listBody, "utf8");

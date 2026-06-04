@@ -63,7 +63,7 @@ const DEFAULT_SCORES: SixDimensionScores = {
 
 const SCORE_TIMEOUT_MS = 20_000;
 const Q3_AUDIO_FALLBACK_TIMEOUT_MS = 60_000;
-const FULL_ANALYSIS_TIMEOUT_MS = 180_000;
+const FULL_ANALYSIS_TIMEOUT_MS = 300_000;
 
 async function scoreFromTranscript(transcript: string): Promise<DeterministicResponse> {
   const form = new FormData();

@@ -15,6 +15,7 @@ import { RadarSnapshot } from "./components/RadarSnapshot";
 import { SpokenCaption } from "./components/SpokenCaption";
 import { VoiceOrb } from "./components/VoiceOrb";
 import { WelcomeLine } from "./components/WelcomeLine";
+import { readJsonResponse } from "@/lib/api/read-json-response";
 import { QUESTIONS, STEP_PROGRESS, WELCOME_LINES, WELCOME_SPEECH } from "./copy";
 import { useBrowserSpeechRecognition } from "./hooks/useBrowserSpeechRecognition";
 import { useSpeechSynthesis } from "./hooks/useSpeechSynthesis";
@@ -74,9 +75,9 @@ async function scoreFromTranscript(transcript: string): Promise<DeterministicRes
     body: form,
     signal: AbortSignal.timeout(SCORE_TIMEOUT_MS),
   });
-  const data = (await res.json()) as DeterministicResponse & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? "Scoring failed");
-  return data;
+  const data = await readJsonResponse(res);
+  if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Scoring failed");
+  return data as unknown as DeterministicResponse;
 }
 
 async function transcribeAndScoreAudio(blob: Blob): Promise<DeterministicResponse> {
@@ -91,16 +92,23 @@ async function transcribeAndScoreAudio(blob: Blob): Promise<DeterministicRespons
     body: form,
     signal: AbortSignal.timeout(Q3_AUDIO_FALLBACK_TIMEOUT_MS),
   });
-  const data = (await res.json()) as DeterministicResponse & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? "Analysis failed");
-  return data;
+  const data = await readJsonResponse(res);
+  if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Analysis failed");
+  return data as unknown as DeterministicResponse;
 }
 
-async function analyzeFull(blobs: Blob[], transcriptPrefix: string): Promise<FullAnalysisResponse> {
+async function analyzeFull(
+  blobs: Blob[],
+  transcriptPrefix: string,
+  segmentTranscripts: string[],
+): Promise<FullAnalysisResponse> {
   const form = new FormData();
   form.append("mode", "full");
   if (transcriptPrefix.trim()) {
     form.append("transcriptPrefix", transcriptPrefix.trim());
+  }
+  for (const text of segmentTranscripts) {
+    form.append("segmentTranscript", text);
   }
   for (const blob of blobs) {
     form.append("audio", blob, "segment.webm");
@@ -110,9 +118,11 @@ async function analyzeFull(blobs: Blob[], transcriptPrefix: string): Promise<Ful
     body: form,
     signal: AbortSignal.timeout(FULL_ANALYSIS_TIMEOUT_MS),
   });
-  const data = (await res.json()) as FullAnalysisResponse & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? "Full analysis failed");
-  return data;
+  const data = await readJsonResponse(res);
+  if (!res.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "Full analysis failed");
+  }
+  return data as unknown as FullAnalysisResponse;
 }
 
 function promptForStep(step: QuickAnalysisStep): string | null {
@@ -134,6 +144,8 @@ export function QuickAnalysisFlow() {
   const [audioBlobs, setAudioBlobs] = React.useState<Blob[]>([]);
   /** Q3–Q5 clips concatenated for final analysis. */
   const [analysisBlobs, setAnalysisBlobs] = React.useState<Blob[]>([]);
+  /** Browser STT per Q3–Q5 clip (skips server Whisper for that segment when long enough). */
+  const [analysisSegmentTranscripts, setAnalysisSegmentTranscripts] = React.useState<string[]>([]);
   const [earlyTranscriptParts, setEarlyTranscriptParts] = React.useState<string[]>([]);
   const [midpointScores, setMidpointScores] = React.useState<SixDimensionScores | null>(null);
   const [displayScores, setDisplayScores] = React.useState<SixDimensionScores>(DEFAULT_SCORES);
@@ -268,12 +280,12 @@ export function QuickAnalysisFlow() {
   );
 
   const runFullAnalysis = React.useCallback(
-    async (blobs: Blob[], transcriptPrefix: string) => {
+    async (blobs: Blob[], transcriptPrefix: string, segmentTranscripts: string[]) => {
       setAnalyzing(true);
       setAnalysisStatus("Running full analysis…");
       setError(null);
       try {
-        const result = await analyzeFull(blobs, transcriptPrefix);
+        const result = await analyzeFull(blobs, transcriptPrefix, segmentTranscripts);
         setDisplayScores(result.scores);
         setCoachSummary(result.coachSummary);
         setShowContact(true);
@@ -282,10 +294,14 @@ export function QuickAnalysisFlow() {
         announceStep("results");
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Full analysis failed.";
+        const timedOut =
+          e instanceof DOMException && (e.name === "TimeoutError" || e.name === "AbortError");
         setError(
-          msg.includes("Speech recognition") || msg.includes("transcription") || msg.includes("Whisper")
-            ? "Server speech recognition failed. Use Chrome or Edge for live captions, or fix local Whisper (see docs/INSTALLATION.md)."
-            : msg,
+          timedOut || msg.includes("took too long")
+            ? "Full analysis timed out. Try again on Chrome or Edge with a stable connection, or stop after the checkpoint for a quicker snapshot."
+            : msg.includes("Speech recognition") || msg.includes("transcription") || msg.includes("Whisper")
+              ? "Server speech recognition failed. Use Chrome or Edge for live captions, or fix local Whisper (see docs/INSTALLATION.md)."
+              : msg,
         );
       } finally {
         setAnalyzing(false);
@@ -312,20 +328,24 @@ export function QuickAnalysisFlow() {
       }
       if (step === "q3_about_city") {
         setAnalysisBlobs((prev) => [...prev, blob]);
+        setAnalysisSegmentTranscripts((prev) => [...prev, browserTranscript.trim()]);
         await scoreMidpointFromQ3(browserTranscript, blob);
         return;
       }
       if (step === "q4_objects") {
         setAnalysisBlobs((prev) => [...prev, blob]);
+        setAnalysisSegmentTranscripts((prev) => [...prev, browserTranscript.trim()]);
         setError(null);
         goNextAfterQuestion("q5_visual");
         return;
       }
       if (step === "q5_visual") {
+        const transcriptsForAnalysis = [...analysisSegmentTranscripts, browserTranscript.trim()];
         const blobsForAnalysis = [...analysisBlobs, blob];
         setAnalysisBlobs(blobsForAnalysis);
+        setAnalysisSegmentTranscripts(transcriptsForAnalysis);
         const prefix = earlyTranscriptParts.join("\n\n");
-        await runFullAnalysis(blobsForAnalysis, prefix);
+        await runFullAnalysis(blobsForAnalysis, prefix, transcriptsForAnalysis);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not finish recording.");
@@ -334,6 +354,7 @@ export function QuickAnalysisFlow() {
     }
   }, [
     analysisBlobs,
+    analysisSegmentTranscripts,
     appendEarlyTranscript,
     browserStt,
     clearMaxDuration,

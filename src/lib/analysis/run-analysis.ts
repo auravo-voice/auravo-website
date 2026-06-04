@@ -102,6 +102,8 @@ export type RunAnalysisInput = {
     userId: string;
     /** When true, runs the Ollama coach summary. Set false for tests / debugging. */
     runCoachSummary?: boolean;
+    /** When true, skips the Groq grammar pass (tests / debugging only). */
+    skipGrammarGroq?: boolean;
     /** Exclude these exercise ids from recommendations (e.g. the one just completed). */
     excludeExerciseIds?: string[];
     /** Pretty label for the conversation / session, used inside the LLM prompt. */
@@ -319,9 +321,10 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     warning: null,
   });
 
-  const grammarGroqPromise: Promise<GrammarAnalysisResult | null> = process.env.GROQ_API_KEY?.trim()
-    ? analyzeGrammarWithGroq(transcriptText)
-    : Promise.resolve(null);
+  const grammarGroqPromise: Promise<GrammarAnalysisResult | null> =
+    input.context.skipGrammarGroq || !process.env.GROQ_API_KEY?.trim()
+      ? Promise.resolve(null)
+      : analyzeGrammarWithGroq(transcriptText);
 
   let grammarAnalysis: GrammarAnalysisResult | null = null;
 

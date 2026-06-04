@@ -63,8 +63,21 @@ export async function POST(req: Request) {
     const prefixRaw = form.get("transcriptPrefix");
     const transcriptPrefix = typeof prefixRaw === "string" ? prefixRaw.trim() : "";
 
+    const segmentTranscripts = form
+      .getAll("segmentTranscript")
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""));
+
+    const startedAt = Date.now();
+    console.info("[quick-analysis/analyze] full mode started", {
+      clips: blobs.length,
+      browserSegments: segmentTranscripts.filter((t) => t.length > 0).length,
+    });
     try {
-      const result = await runQuickAnalysisFull(blobs, transcriptPrefix);
+      const result = await runQuickAnalysisFull(blobs, transcriptPrefix, segmentTranscripts);
+      console.info("[quick-analysis/analyze] full mode ok", {
+        ms: Date.now() - startedAt,
+        transcriptChars: result.transcript.length,
+      });
       return NextResponse.json({
         scores: result.scores,
         transcript: result.transcript,
@@ -79,6 +92,10 @@ export async function POST(req: Request) {
         },
       });
     } catch (e) {
+      console.error("[quick-analysis/analyze] full mode failed", {
+        ms: Date.now() - startedAt,
+        error: e,
+      });
       if (e instanceof TranscriptionUnavailableError) {
         console.error("[quick-analysis/analyze] full transcription failed:", e.cause ?? e.message);
         return NextResponse.json(

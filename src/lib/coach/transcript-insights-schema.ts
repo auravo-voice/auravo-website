@@ -12,10 +12,10 @@ const coachingPatternSchema = z.preprocess((raw) => {
   }
   const row = raw as Record<string, unknown>;
   return {
-    pattern: row.pattern ?? row.name ?? row.title ?? "",
-    evidence: row.evidence ?? row.example ?? row.quote ?? "",
-    impact: row.impact ?? row.why ?? "",
-    fix: row.fix ?? row.suggestion ?? row.recommendation ?? "",
+    pattern: asTrimmedString(row.pattern ?? row.name ?? row.title),
+    evidence: asTrimmedString(row.evidence ?? row.example ?? row.quote),
+    impact: asTrimmedString(row.impact ?? row.why),
+    fix: asTrimmedString(row.fix ?? row.suggestion ?? row.recommendation),
   };
 }, z.object({
   pattern: z.string(),
@@ -29,10 +29,11 @@ const acousticPatternSchema = z.preprocess((raw) => {
     return { pattern: "", timestamps: "", fix: "" };
   }
   const row = raw as Record<string, unknown>;
+  const ts = row.timestamps ?? row.time_range ?? row.time ?? row.timestamp ?? row.when ?? "";
   return {
-    pattern: row.pattern ?? row.name ?? "",
-    timestamps: row.timestamps ?? row.time_range ?? row.time ?? row.timestamp ?? row.when ?? "",
-    fix: row.fix ?? row.suggestion ?? "",
+    pattern: asTrimmedString(row.pattern ?? row.name),
+    timestamps: Array.isArray(ts) ? ts.map((t) => asTrimmedString(t)).filter(Boolean).join(", ") : asTrimmedString(ts),
+    fix: asTrimmedString(row.fix ?? row.suggestion),
   };
 }, z.object({
   pattern: z.string(),

@@ -4,6 +4,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { readJsonResponse } from "@/lib/api/read-json-response";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 
 type Props = {
@@ -28,9 +29,9 @@ export function ContactForm({ scores, onSuccess }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, phone: phone.trim() || undefined, scores }),
       });
-      const data = (await res.json()) as { ok?: boolean; error?: string };
+      const data = await readJsonResponse(res);
       if (!res.ok) {
-        setError(data.error ?? "Something went wrong. Please try again.");
+        setError(typeof data.error === "string" ? data.error : "Something went wrong. Please try again.");
         return;
       }
       onSuccess();

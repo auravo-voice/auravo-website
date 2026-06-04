@@ -32,6 +32,7 @@ function smtpTransportOptions(): {
     host: string;
     port: number;
     secure: boolean;
+    ignoreTLS?: boolean;
     auth?: { user: string; pass: string };
     tls?: { servername?: string; rejectUnauthorized?: boolean };
   } = {
@@ -41,6 +42,10 @@ function smtpTransportOptions(): {
   };
   if (user && pass) {
     opts.auth = { user, pass };
+  }
+  // Internal relay on port 25 — stay plain; avoid STARTTLS cert mismatch on hostname "stalwart".
+  if (!secure && resolvedPort === 25) {
+    opts.ignoreTLS = true;
   }
   // Submission (587) presents a cert for mail.auravo.ai; internal hostname is often "stalwart".
   if (!secure && resolvedPort === 587) {

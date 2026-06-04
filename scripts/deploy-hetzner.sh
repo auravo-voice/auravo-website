@@ -38,6 +38,11 @@ podman build \
 
 podman volume exists "$DATA_VOLUME" || podman volume create "$DATA_VOLUME"
 
+# Stalwart must be reachable as SMTP_HOST (default: stalwart) on the app network.
+if podman container exists stalwart 2>/dev/null; then
+  podman network connect "$NETWORK" stalwart 2>/dev/null || true
+fi
+
 echo "==> Restart container"
 podman stop "$CONTAINER" 2>/dev/null || true
 podman rm "$CONTAINER" 2>/dev/null || true
@@ -54,6 +59,14 @@ podman run -d --name "$CONTAINER" \
   -e AURAVO_DB_DIR=/data \
   -e "GROQ_API_KEY=$GROQ_API_KEY" \
   -e "GROQ_MODEL=$GROQ_MODEL" \
+  -e "DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}" \
+  -e "SMTP_HOST=${SMTP_HOST:-stalwart}" \
+  -e "SMTP_PORT=${SMTP_PORT:-587}" \
+  -e "SMTP_SECURE=${SMTP_SECURE:-false}" \
+  -e "SMTP_USER=${SMTP_USER:-}" \
+  -e "SMTP_PASS=${SMTP_PASS:-}" \
+  -e "QUICK_ANALYSIS_LEAD_FROM=${QUICK_ANALYSIS_LEAD_FROM:-support@auravo.ai}" \
+  -e "QUICK_ANALYSIS_LEAD_TO=${QUICK_ANALYSIS_LEAD_TO:-support@auravo.ai}" \
   -e FASTER_WHISPER_MODEL=small \
   -e TRANSCRIPTION_PROVIDER=faster-whisper \
   -e FASTER_WHISPER_PYTHON=/app/.venv-transcription/bin/python \

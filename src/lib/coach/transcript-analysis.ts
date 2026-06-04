@@ -5,6 +5,7 @@ import type { AcousticFeatures } from "@/lib/audio/acoustic";
 import { normalizeCollapseSegments } from "@/lib/audio/collapse-segments";
 import {
   groqTranscriptInsightsSchema,
+  normalizeGroqTranscriptInsightsPayload,
   type GroqTranscriptInsightsPayload,
 } from "@/lib/coach/transcript-insights-schema";
 import { groqChatStructured } from "@/lib/groq/chat-json";
@@ -47,18 +48,22 @@ function formatCollapseNote(acoustic: AcousticFeatures): string {
 
 function mapGroqPayload(data: GroqTranscriptInsightsPayload): TranscriptInsights {
   const acousticRaw = data.acoustic_patterns ?? data.acousticPatterns ?? [];
-  const acoustic_patterns: AcousticCoachingPattern[] = acousticRaw.map((p) => ({
-    pattern: p.pattern.trim(),
-    timestamps: p.timestamps.trim(),
-    fix: p.fix.trim(),
-  }));
+  const acoustic_patterns: AcousticCoachingPattern[] = acousticRaw
+    .map((p) => ({
+      pattern: p.pattern.trim(),
+      timestamps: p.timestamps.trim() || "throughout the clip",
+      fix: p.fix.trim(),
+    }))
+    .filter((p) => p.pattern.length > 0 && p.fix.length > 0);
 
-  const patterns: CoachingPattern[] = (data.patterns ?? []).map((p) => ({
-    pattern: p.pattern.trim(),
-    evidence: p.evidence.trim(),
-    impact: p.impact.trim(),
-    fix: p.fix.trim(),
-  }));
+  const patterns: CoachingPattern[] = (data.patterns ?? [])
+    .map((p) => ({
+      pattern: p.pattern.trim(),
+      evidence: p.evidence.trim(),
+      impact: p.impact.trim(),
+      fix: p.fix.trim(),
+    }))
+    .filter((p) => p.pattern.length > 0 && p.fix.length > 0);
 
   const biggest_issue = (data.biggest_issue ?? data.biggestIssue)?.trim() || null;
   const strength = data.strength?.trim() || null;
@@ -132,6 +137,7 @@ ${transcript.slice(0, 3000)}
       schema: groqTranscriptInsightsSchema,
       maxTokens: 2048,
       temperature: 0.3,
+      normalize: normalizeGroqTranscriptInsightsPayload,
     });
     return mapGroqPayload(data);
   } catch (e) {

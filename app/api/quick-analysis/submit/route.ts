@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
+import { sendQuickAnalysisLeadEmail } from "@/lib/quick-analysis/send-lead-email";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
 
   const { name, email, phone, scores } = parsed.data;
   const lead = {
-    source: "quick-analysis",
+    source: "quick-analysis" as const,
     at: new Date().toISOString(),
     name,
     email,
@@ -46,6 +47,19 @@ export async function POST(req: Request) {
   };
 
   console.info("[quick-analysis/lead]", JSON.stringify(lead));
+
+  try {
+    await sendQuickAnalysisLeadEmail(lead);
+  } catch (e) {
+    console.error("[quick-analysis/submit] email failed:", e);
+    return NextResponse.json(
+      {
+        error:
+          "We could not send your details by email. Please try again in a moment or contact support@auravo.ai directly.",
+      },
+      { status: 503 },
+    );
+  }
 
   const webhook = process.env.QUICK_ANALYSIS_LEAD_WEBHOOK_URL?.trim();
   if (webhook) {

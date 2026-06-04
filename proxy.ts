@@ -32,7 +32,7 @@ export function proxy(request: NextRequest) {
   const res = NextResponse.next();
   const pathname = request.nextUrl.pathname;
 
-  // Quick Analysis demo + public APIs (analyze, submit)
+  // Quick Analysis demo + public APIs (analyze, submit, tts)
   if (
     pathname.startsWith("/quick-analysis") ||
     pathname.startsWith("/api/quick-analysis")

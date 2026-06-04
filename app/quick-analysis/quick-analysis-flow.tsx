@@ -124,7 +124,7 @@ function promptForStep(step: QuickAnalysisStep): string | null {
 }
 
 export function QuickAnalysisFlow() {
-  const { speak, stop: stopSpeaking, speaking, caption } = useSpeechSynthesis();
+  const { speak, stop: stopSpeaking, speaking, caption, unlockFromGesture } = useSpeechSynthesis();
   const { recording, start: startRecording, stop: stopRecording } = useVoiceRecorder();
   const browserStt = useBrowserSpeechRecognition();
 
@@ -191,13 +191,13 @@ export function QuickAnalysisFlow() {
     [speak],
   );
 
-  React.useEffect(() => {
-    if (step !== "welcome" || welcomeStartedRef.current) return;
+  const startWelcomeSpeech = React.useCallback(() => {
+    if (welcomeStartedRef.current) return;
     welcomeStartedRef.current = true;
     setWelcomeReady(false);
     spokeRef.current = "welcome";
-    speak(WELCOME_SPEECH, () => setWelcomeReady(true));
-  }, [step, speak]);
+    void speak(WELCOME_SPEECH, () => setWelcomeReady(true));
+  }, [speak]);
 
   React.useEffect(() => {
     if (step === "welcome") return;
@@ -235,6 +235,11 @@ export function QuickAnalysisFlow() {
       try {
         const trimmed = q3Transcript.trim();
         const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+        if (wordCount < 1 && !browserStt.supported) {
+          throw new Error(
+            "We could not hear a transcript from your browser. Use Chrome or Edge for live captions, or run npm run setup:transcription (Python 3.11 or 3.12) for server speech recognition.",
+          );
+        }
         const result =
           wordCount >= 1 ? await scoreFromTranscript(trimmed) : await transcribeAndScoreAudio(q3Blob);
         setMidpointScores(result.scores);
@@ -259,7 +264,7 @@ export function QuickAnalysisFlow() {
         setAnalysisStatus(null);
       }
     },
-    [goNextAfterQuestion],
+    [browserStt.supported, goNextAfterQuestion],
   );
 
   const runFullAnalysis = React.useCallback(
@@ -342,6 +347,7 @@ export function QuickAnalysisFlow() {
   ]);
 
   const onToggleRecord = React.useCallback(() => {
+    unlockFromGesture();
     if (analyzing) return;
     if (recordingRef.current) {
       void finishRecording();
@@ -360,7 +366,7 @@ export function QuickAnalysisFlow() {
         if (recordingRef.current) void finishRecording();
       }, 60_000);
     }
-  }, [analyzing, browserStt, clearMaxDuration, finishRecording, startRecording, step]);
+  }, [analyzing, browserStt, clearMaxDuration, finishRecording, startRecording, step, unlockFromGesture]);
 
   const scoresForDisplay =
     midpointScores && (step === "midpoint" || (showContact && !fullPath)) ? midpointScores : displayScores;
@@ -423,19 +429,29 @@ export function QuickAnalysisFlow() {
                 variant="glow"
                 className="min-w-[11rem]"
                 onClick={() => {
+                  unlockFromGesture();
+                  if (!welcomeReady) {
+                    if (!welcomeStartedRef.current) {
+                      startWelcomeSpeech();
+                      return;
+                    }
+                    stopSpeaking();
+                    setWelcomeReady(true);
+                    return;
+                  }
                   stopSpeaking();
-                  setWelcomeReady(true);
                   spokeRef.current = null;
                   setStep("q1_city");
                 }}
               >
-                {welcomeReady ? "Start speaking" : "Continue"}
+                {welcomeReady ? "Start speaking" : speaking ? "Continue" : "Play intro"}
               </Button>
               {mounted && speaking && !welcomeReady ? (
                 <Button
                   size="lg"
                   variant="outline"
                   onClick={() => {
+                    unlockFromGesture();
                     stopSpeaking();
                     setWelcomeReady(true);
                   }}

@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 import { groqChatStructured } from "@/lib/groq/chat-json";
 import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
+import { finalizeSpokenGrammarAnalysis } from "@/lib/analysis/spoken-grammar-filter";
 
 export type GrammarErrorType =
   | "tense"
@@ -131,19 +132,26 @@ export async function analyzeGrammarWithGroq(
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
 
-  const prompt = `You are a professional English grammar coach analyzing a speech transcript.
+  const prompt = `You are a professional English grammar coach analyzing a SPEECH transcript from automatic speech recognition (ASR).
 
-Identify grammar errors in this transcript. Focus on:
+The text usually has NO punctuation marks (no commas, semicolons, or periods). Only flag mistakes the speaker actually said — wrong words, tense, articles, agreement, prepositions.
+
+Focus on:
 - Tense errors (e.g. "I was go", "he have done", "we will went")
 - Article errors (e.g. "I have meeting", "she is engineer", "I went to hospital")
 - Subject-verb agreement (e.g. "he don't", "they was", "she have")
 - Preposition errors (e.g. "working since 5 years", "good in English", "discuss about")
 - Word choice errors (e.g. "could of", "should of", "make a research")
 
-Do NOT flag:
+Do NOT flag or mention:
+- Missing or wrong punctuation (semicolons, commas, periods, capitalization)
+- "Independent clauses", "run-on sentences", or how to join clauses with punctuation
 - Informal spoken style or contractions
 - Filler words
 - Incomplete sentences caused by natural speech patterns
+
+Every "error" field MUST be an exact substring copied from the transcript (spoken words only).
+Every "correction" MUST be spoken words the learner can say aloud — not punctuation edits.
 
 Return JSON only with this exact shape:
 {
@@ -174,13 +182,17 @@ ${trimmed.slice(0, 4000)}`;
       normalize: normalizeGrammarPayload,
     });
 
-    const errorCount = parsed.errors.length;
-    return {
-      errors: parsed.errors,
-      score: computeGrammarScore(errorCount, wordCount),
-      summary: parsed.summary,
-      strengths: parsed.strengths,
-    };
+    return finalizeSpokenGrammarAnalysis(
+      {
+        errors: parsed.errors,
+        score: computeGrammarScore(parsed.errors.length, wordCount),
+        summary: parsed.summary,
+        strengths: parsed.strengths,
+      },
+      trimmed,
+      wordCount,
+      computeGrammarScore,
+    );
   } catch (e) {
     console.error("[grammar-analysis] Groq failed:", e);
     return null;

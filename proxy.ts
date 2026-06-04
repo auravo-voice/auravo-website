@@ -32,10 +32,13 @@ export function proxy(request: NextRequest) {
   const res = NextResponse.next();
   const pathname = request.nextUrl.pathname;
 
-  // Quick Analysis demo — disabled
-  // if (pathname.startsWith("/quick-analysis") || pathname.startsWith("/api/quick-analysis")) {
-  //   return res;
-  // }
+  // Quick Analysis demo + public APIs (analyze, submit)
+  if (
+    pathname.startsWith("/quick-analysis") ||
+    pathname.startsWith("/api/quick-analysis")
+  ) {
+    return res;
+  }
 
   if (pathname.startsWith("/api/session/attach") || pathname === "/api/session/baseline-handoff") {
     return res;

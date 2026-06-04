@@ -42,7 +42,10 @@ export function ContactForm({ scores, onSuccess }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="w-full max-w-md space-y-4 rounded-2xl border border-border/70 bg-card/60 p-6">
+    <form
+      onSubmit={handleSubmit}
+      className="w-full max-w-md space-y-5 rounded-3xl border border-white/12 bg-white/5 p-7 shadow-[0_20px_60px_-12px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+    >
       <div>
         <h3 className="font-display text-lg font-semibold text-foreground">Get your personalised plan</h3>
         <p className="mt-1 text-sm text-muted-foreground">

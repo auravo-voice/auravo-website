@@ -55,6 +55,7 @@ podman run -d --name "$CONTAINER" \
   -e "GROQ_API_KEY=$GROQ_API_KEY" \
   -e "GROQ_MODEL=$GROQ_MODEL" \
   -e FASTER_WHISPER_MODEL=small \
+  -e QUICK_ANALYSIS_WHISPER_MODEL=tiny \
   -e TRANSCRIPTION_PROVIDER=faster-whisper \
   -e FASTER_WHISPER_PYTHON=/app/.venv-transcription/bin/python \
   --replace \

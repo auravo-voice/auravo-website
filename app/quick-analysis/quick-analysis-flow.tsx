@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { AuravoMark } from "@/components/brand";
 import { CoachInsightCards } from "@/components/coach-insight-cards";
 import { Button } from "@/components/ui/button";
@@ -8,9 +9,13 @@ import { VisualPromptScene } from "@/app/(app)/assessment/visual-prompt-scene";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import { ContactForm } from "./components/ContactForm";
+import { DemoAmbient } from "./components/DemoAmbient";
 import { QuestionStep } from "./components/QuestionStep";
 import { RadarSnapshot } from "./components/RadarSnapshot";
-import { QUESTIONS, STEP_PROGRESS, WELCOME_SPEECH } from "./copy";
+import { SpokenCaption } from "./components/SpokenCaption";
+import { VoiceOrb } from "./components/VoiceOrb";
+import { WelcomeLine } from "./components/WelcomeLine";
+import { QUESTIONS, STEP_PROGRESS, WELCOME_LINES, WELCOME_SPEECH } from "./copy";
 import { useBrowserSpeechRecognition } from "./hooks/useBrowserSpeechRecognition";
 import { useSpeechSynthesis } from "./hooks/useSpeechSynthesis";
 import { useVoiceRecorder } from "./hooks/useVoiceRecorder";
@@ -58,6 +63,7 @@ const DEFAULT_SCORES: SixDimensionScores = {
 
 const SCORE_TIMEOUT_MS = 20_000;
 const Q3_AUDIO_FALLBACK_TIMEOUT_MS = 60_000;
+const FULL_ANALYSIS_TIMEOUT_MS = 180_000;
 
 async function scoreFromTranscript(transcript: string): Promise<DeterministicResponse> {
   const form = new FormData();
@@ -73,7 +79,6 @@ async function scoreFromTranscript(transcript: string): Promise<DeterministicRes
   return data;
 }
 
-/** Whisper only for midpoint when browser did not capture Q3 text (Safari fallback). */
 async function transcribeAndScoreAudio(blob: Blob): Promise<DeterministicResponse> {
   if (blob.size < 800) {
     throw new Error("Recording was too short. Hold the mic a little longer and try again.");
@@ -91,38 +96,70 @@ async function transcribeAndScoreAudio(blob: Blob): Promise<DeterministicRespons
   return data;
 }
 
-async function analyzeFull(blobs: Blob[]): Promise<FullAnalysisResponse> {
+async function analyzeFull(blobs: Blob[], transcriptPrefix: string): Promise<FullAnalysisResponse> {
   const form = new FormData();
   form.append("mode", "full");
+  if (transcriptPrefix.trim()) {
+    form.append("transcriptPrefix", transcriptPrefix.trim());
+  }
   for (const blob of blobs) {
     form.append("audio", blob, "segment.webm");
   }
-  const res = await fetch("/api/quick-analysis/analyze", { method: "POST", body: form });
+  const res = await fetch("/api/quick-analysis/analyze", {
+    method: "POST",
+    body: form,
+    signal: AbortSignal.timeout(FULL_ANALYSIS_TIMEOUT_MS),
+  });
   const data = (await res.json()) as FullAnalysisResponse & { error?: string };
   if (!res.ok) throw new Error(data.error ?? "Full analysis failed");
   return data;
 }
 
+function promptForStep(step: QuickAnalysisStep): string | null {
+  if (step === "midpoint") return QUESTIONS.midpoint;
+  if (step === "results") return QUESTIONS.results;
+  if (step === "thank_you") return QUESTIONS.thank_you_page;
+  if (step in QUESTIONS) return QUESTIONS[step as keyof typeof QUESTIONS];
+  return null;
+}
+
 export function QuickAnalysisFlow() {
-  const { speak, stop: stopSpeaking } = useSpeechSynthesis();
+  const { speak, stop: stopSpeaking, speaking, caption } = useSpeechSynthesis();
   const { recording, start: startRecording, stop: stopRecording } = useVoiceRecorder();
   const browserStt = useBrowserSpeechRecognition();
 
   const [step, setStep] = React.useState<QuickAnalysisStep>("welcome");
+  const [welcomeReady, setWelcomeReady] = React.useState(false);
+  /** Q1/Q2 audio only (not sent to full Whisper concat). */
   const [audioBlobs, setAudioBlobs] = React.useState<Blob[]>([]);
+  /** Q3–Q5 clips concatenated for final analysis. */
+  const [analysisBlobs, setAnalysisBlobs] = React.useState<Blob[]>([]);
+  const [earlyTranscriptParts, setEarlyTranscriptParts] = React.useState<string[]>([]);
   const [midpointScores, setMidpointScores] = React.useState<SixDimensionScores | null>(null);
   const [displayScores, setDisplayScores] = React.useState<SixDimensionScores>(DEFAULT_SCORES);
   const [coachSummary, setCoachSummary] = React.useState<FullAnalysisResponse["coachSummary"] | null>(null);
-  const [lastTranscript, setLastTranscript] = React.useState<string | null>(null);
   const [analyzing, setAnalyzing] = React.useState(false);
   const [analysisStatus, setAnalysisStatus] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [showContact, setShowContact] = React.useState(false);
   const [fullPath, setFullPath] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+  /** Browser-only STT hint — rendered after mount to avoid hydration mismatch. */
+  const [clientHints, setClientHints] = React.useState<{
+    showSttWarning: boolean;
+  } | null>(null);
 
   const maxDurationRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const spokeRef = React.useRef<string | null>(null);
   const recordingRef = React.useRef(false);
+  const welcomeStartedRef = React.useRef(false);
+  const browserSttRef = React.useRef(browserStt);
+  browserSttRef.current = browserStt;
+
+  React.useEffect(() => {
+    setMounted(true);
+    setClientHints({ showSttWarning: !browserStt.supported });
+  }, [browserStt.supported]);
 
   React.useEffect(() => {
     recordingRef.current = recording;
@@ -135,95 +172,122 @@ export function QuickAnalysisFlow() {
     }
   }, []);
 
-  React.useEffect(() => () => {
-    stopSpeaking();
-    browserStt.abort();
-    clearMaxDuration();
-  }, [browserStt, stopSpeaking, clearMaxDuration]);
+  /** Unmount only — do not depend on `browserStt` (new object every render was canceling TTS). */
+  React.useEffect(() => {
+    return () => {
+      stopSpeaking();
+      browserSttRef.current.abort();
+      clearMaxDuration();
+    };
+  }, [stopSpeaking, clearMaxDuration]);
+
+  const announceStep = React.useCallback(
+    (targetStep: QuickAnalysisStep) => {
+      const text = promptForStep(targetStep);
+      if (!text) return;
+      spokeRef.current = targetStep;
+      speak(text);
+    },
+    [speak],
+  );
 
   React.useEffect(() => {
-    if (step === "welcome" || step === "thank_you") return;
-    const text =
-      step === "midpoint"
-        ? QUESTIONS.midpoint
-        : step === "results"
-          ? QUESTIONS.results
-          : step in QUESTIONS
-            ? QUESTIONS[step as keyof typeof QUESTIONS]
-            : null;
-    if (!text || spokeRef.current === step) return;
-    spokeRef.current = step;
-    const t = window.setTimeout(() => speak(text), 300);
-    return () => clearTimeout(t);
+    if (step !== "welcome" || welcomeStartedRef.current) return;
+    welcomeStartedRef.current = true;
+    setWelcomeReady(false);
+    spokeRef.current = "welcome";
+    speak(WELCOME_SPEECH, () => setWelcomeReady(true));
   }, [step, speak]);
+
+  React.useEffect(() => {
+    if (step === "welcome") return;
+    if (spokeRef.current === step) return;
+    announceStep(step);
+  }, [step, announceStep]);
 
   const goNextAfterQuestion = React.useCallback((next: QuickAnalysisStep) => {
     spokeRef.current = null;
     setStep(next);
   }, []);
 
-  /** Save clip only — same pattern as assessment segment upload (no scoring yet). */
+  const appendEarlyTranscript = React.useCallback((browserTranscript: string) => {
+    const text = browserTranscript.trim();
+    if (text.length > 0) {
+      setEarlyTranscriptParts((prev) => [...prev, text]);
+    }
+  }, []);
+
   const saveSegment = React.useCallback(
     (blob: Blob, browserTranscript: string, next: QuickAnalysisStep) => {
       const text = browserTranscript.trim();
       setAudioBlobs((prev) => [...prev, blob]);
-      setLastTranscript(text.length > 0 ? text : null);
       setError(null);
       goNextAfterQuestion(next);
     },
     [goNextAfterQuestion],
   );
 
-  /** One scoring pass after Q3 for the midpoint radar (not after every clip). */
-  const scoreMidpointFromQ3 = React.useCallback(async (q3Transcript: string, q3Blob: Blob) => {
-    setAnalyzing(true);
-    setAnalysisStatus("Building your snapshot…");
-    setError(null);
-    try {
-      const hasText = q3Transcript.trim().split(/\s+/).filter(Boolean).length >= 3;
-      const result = hasText
-        ? await scoreFromTranscript(q3Transcript.trim())
-        : await transcribeAndScoreAudio(q3Blob);
-      setMidpointScores(result.scores);
-      setDisplayScores(result.scores);
-      setLastTranscript(result.transcript);
-      goNextAfterQuestion("midpoint");
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Could not build your snapshot.";
-      setError(
-        e instanceof DOMException && e.name === "TimeoutError"
-          ? "Analysis timed out. Use Chrome or Edge, or try again."
-          : msg,
-      );
-    } finally {
-      setAnalyzing(false);
-      setAnalysisStatus(null);
-    }
-  }, [goNextAfterQuestion]);
-
-  const runFullAnalysis = React.useCallback(
-    async (allBlobs: Blob[]) => {
+  const scoreMidpointFromQ3 = React.useCallback(
+    async (q3Transcript: string, q3Blob: Blob) => {
       setAnalyzing(true);
-      setAnalysisStatus("Running full analysis…");
+      setAnalysisStatus("Building your snapshot…");
       setError(null);
       try {
-        const result = await analyzeFull(allBlobs);
+        const trimmed = q3Transcript.trim();
+        const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+        const result =
+          wordCount >= 1 ? await scoreFromTranscript(trimmed) : await transcribeAndScoreAudio(q3Blob);
+        setMidpointScores(result.scores);
         setDisplayScores(result.scores);
-        setCoachSummary(result.coachSummary);
-        setLastTranscript(result.transcript);
-        setShowContact(true);
-        setFullPath(true);
-        spokeRef.current = null;
-        setStep("results");
-        speak(QUESTIONS.results);
+        goNextAfterQuestion("midpoint");
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Full analysis failed.");
+        const msg = e instanceof Error ? e.message : "Could not build your snapshot.";
+        const isTranscription =
+          msg.includes("Speech recognition") ||
+          msg.includes("transcription") ||
+          msg.includes("Whisper") ||
+          msg.includes("faster-whisper");
+        setError(
+          e instanceof DOMException && e.name === "TimeoutError"
+            ? "Analysis timed out. Use Chrome or Edge, or try again."
+            : isTranscription
+              ? "Server speech recognition is unavailable. Use Chrome or Edge so we can score from your voice live, or fix local Whisper (npm run setup:transcription with Python 3.11 or 3.12)."
+              : msg,
+        );
       } finally {
         setAnalyzing(false);
         setAnalysisStatus(null);
       }
     },
-    [speak],
+    [goNextAfterQuestion],
+  );
+
+  const runFullAnalysis = React.useCallback(
+    async (blobs: Blob[], transcriptPrefix: string) => {
+      setAnalyzing(true);
+      setAnalysisStatus("Running full analysis…");
+      setError(null);
+      try {
+        const result = await analyzeFull(blobs, transcriptPrefix);
+        setDisplayScores(result.scores);
+        setCoachSummary(result.coachSummary);
+        setShowContact(true);
+        setFullPath(true);
+        setStep("results");
+        announceStep("results");
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Full analysis failed.";
+        setError(
+          msg.includes("Speech recognition") || msg.includes("transcription") || msg.includes("Whisper")
+            ? "Server speech recognition failed. Use Chrome or Edge for live captions, or fix local Whisper (see docs/INSTALLATION.md)."
+            : msg,
+        );
+      } finally {
+        setAnalyzing(false);
+        setAnalysisStatus(null);
+      }
+    },
+    [announceStep],
   );
 
   const finishRecording = React.useCallback(async () => {
@@ -232,33 +296,50 @@ export function QuickAnalysisFlow() {
       const [blob, browserTranscript] = await Promise.all([stopRecording(), browserStt.stop()]);
 
       if (step === "q1_city") {
+        appendEarlyTranscript(browserTranscript);
         saveSegment(blob, browserTranscript, "q2_duration");
         return;
       }
       if (step === "q2_duration") {
+        appendEarlyTranscript(browserTranscript);
         saveSegment(blob, browserTranscript, "q3_about_city");
         return;
       }
       if (step === "q3_about_city") {
-        setAudioBlobs((prev) => [...prev, blob]);
+        setAnalysisBlobs((prev) => [...prev, blob]);
         await scoreMidpointFromQ3(browserTranscript, blob);
         return;
       }
       if (step === "q4_objects") {
-        saveSegment(blob, browserTranscript, "q5_visual");
+        setAnalysisBlobs((prev) => [...prev, blob]);
+        setError(null);
+        goNextAfterQuestion("q5_visual");
         return;
       }
       if (step === "q5_visual") {
-        const allBlobs = [...audioBlobs, blob];
-        setAudioBlobs(allBlobs);
-        await runFullAnalysis(allBlobs);
+        const blobsForAnalysis = [...analysisBlobs, blob];
+        setAnalysisBlobs(blobsForAnalysis);
+        const prefix = earlyTranscriptParts.join("\n\n");
+        await runFullAnalysis(blobsForAnalysis, prefix);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not finish recording.");
       setAnalyzing(false);
       setAnalysisStatus(null);
     }
-  }, [audioBlobs, browserStt, clearMaxDuration, runFullAnalysis, saveSegment, scoreMidpointFromQ3, step, stopRecording]);
+  }, [
+    analysisBlobs,
+    appendEarlyTranscript,
+    browserStt,
+    clearMaxDuration,
+    earlyTranscriptParts,
+    goNextAfterQuestion,
+    runFullAnalysis,
+    saveSegment,
+    scoreMidpointFromQ3,
+    step,
+    stopRecording,
+  ]);
 
   const onToggleRecord = React.useCallback(() => {
     if (analyzing) return;
@@ -267,7 +348,6 @@ export function QuickAnalysisFlow() {
       return;
     }
     setError(null);
-    setLastTranscript(null);
     clearMaxDuration();
     browserStt.start();
     void startRecording();
@@ -282,109 +362,137 @@ export function QuickAnalysisFlow() {
     }
   }, [analyzing, browserStt, clearMaxDuration, finishRecording, startRecording, step]);
 
-  const scoresForDisplay = midpointScores && (step === "midpoint" || (showContact && !fullPath))
-    ? midpointScores
-    : displayScores;
+  const scoresForDisplay =
+    midpointScores && (step === "midpoint" || (showContact && !fullPath)) ? midpointScores : displayScores;
 
   const stepProgress = STEP_PROGRESS[step];
+  const coachSpeaking = speaking && step !== "welcome";
+  const welcomeLinesActive = mounted && (speaking || welcomeReady);
 
   return (
-    <main className="flex min-h-dvh flex-col items-center bg-background px-6 py-10">
-      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(255,102,0,0.1),transparent)]" />
+    <main className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-background px-6 py-10">
+      <DemoAmbient />
+
       <div className="relative z-10 flex w-full max-w-2xl flex-col items-center gap-8">
-        <AuravoMark className="h-10 max-w-[200px]" />
+        <div className="flex w-full items-center justify-between gap-4">
+          <AuravoMark className="h-9 max-w-[160px] opacity-95" />
+          <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-primary">
+            Live demo
+          </span>
+        </div>
 
         {stepProgress ? (
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-            Step {stepProgress.current} of {stepProgress.total}
-          </p>
+          <div className="flex w-full max-w-md items-center gap-2">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted/40">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-primary to-amber-400 transition-all duration-500"
+                style={{ width: `${(stepProgress.current / stepProgress.total) * 100}%` }}
+              />
+            </div>
+            <p className="shrink-0 text-xs font-medium text-muted-foreground">
+              {stepProgress.current}/{stepProgress.total}
+            </p>
+          </div>
         ) : null}
 
         {error ? (
-          <p className="w-full rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          <p className="w-full rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
             {error}
           </p>
         ) : null}
 
         {step === "welcome" ? (
-          <div className="flex flex-col items-center gap-6 text-center">
-            <h1 className="font-display text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
-              Quick Analysis
-            </h1>
-            <p className="max-w-md text-base leading-relaxed text-muted-foreground">
-              A short, voice-first snapshot of your English — no account needed. Answer a few spoken prompts and see
-              where you shine.
-            </p>
-            {browserStt.supported ? (
-              <p className="text-xs text-muted-foreground">
-                Chrome or Edge recommended. We score once after your city description, like the full assessment.
+          <div className="flex w-full flex-col items-center gap-10 py-6">
+            <VoiceOrb mode={speaking ? "speaking" : "idle"} />
+
+            <div className="flex w-full max-w-lg flex-col items-center gap-3">
+              {WELCOME_LINES.map((line, i) => (
+                <WelcomeLine key={line} text={line} delay={i * 0.18} active={welcomeLinesActive} />
+              ))}
+            </div>
+
+            {clientHints?.showSttWarning ? (
+              <p className="max-w-sm text-center text-xs text-amber-200/90">
+                Chrome or Edge recommended for live captions while you speak.
               </p>
-            ) : (
-              <p className="text-xs text-amber-200/90">
-                For faster transcription, use Chrome or Edge. Otherwise scoring runs once at the checkpoint.
-              </p>
-            )}
-            <Button
-              size="lg"
-              variant="glow"
-              className="min-w-[12rem]"
-              onClick={() => {
-                speak(WELCOME_SPEECH, () => setStep("q1_city"));
-              }}
-            >
-              Start
-            </Button>
+            ) : null}
+
+            <div className="flex flex-wrap justify-center gap-3">
+              <Button
+                size="lg"
+                variant="glow"
+                className="min-w-[11rem]"
+                onClick={() => {
+                  stopSpeaking();
+                  setWelcomeReady(true);
+                  spokeRef.current = null;
+                  setStep("q1_city");
+                }}
+              >
+                {welcomeReady ? "Start speaking" : "Continue"}
+              </Button>
+              {mounted && speaking && !welcomeReady ? (
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={() => {
+                    stopSpeaking();
+                    setWelcomeReady(true);
+                  }}
+                >
+                  Skip intro
+                </Button>
+              ) : null}
+            </div>
           </div>
         ) : null}
 
         {step === "q1_city" ? (
           <QuestionStep
-            stepLabel={stepProgress ? `Step ${stepProgress.current} of ${stepProgress.total}` : undefined}
-            question={QUESTIONS.q1_city}
+            stepLabel={`Question ${STEP_PROGRESS.q1_city.current}`}
+            spokenPrompt={QUESTIONS.q1_city}
+            coachSpeaking={coachSpeaking}
             recording={recording}
-            analyzing={false}
             onToggleRecord={onToggleRecord}
-            transcript={lastTranscript}
           />
         ) : null}
 
         {step === "q2_duration" ? (
           <QuestionStep
-            stepLabel={stepProgress ? `Step ${stepProgress.current} of ${stepProgress.total}` : undefined}
-            question={QUESTIONS.q2_duration}
+            stepLabel={`Question ${STEP_PROGRESS.q2_duration.current}`}
+            spokenPrompt={QUESTIONS.q2_duration}
+            coachSpeaking={coachSpeaking}
             recording={recording}
-            analyzing={false}
             onToggleRecord={onToggleRecord}
-            transcript={lastTranscript}
           />
         ) : null}
 
         {step === "q3_about_city" ? (
           <QuestionStep
-            stepLabel={stepProgress ? `Step ${stepProgress.current} of ${stepProgress.total}` : undefined}
-            question={QUESTIONS.q3_about_city}
+            stepLabel={`Question ${STEP_PROGRESS.q3_about_city.current}`}
+            spokenPrompt={QUESTIONS.q3_about_city}
+            coachSpeaking={coachSpeaking}
             recording={recording}
             analyzing={analyzing}
             analysisStatus={analysisStatus}
             onToggleRecord={onToggleRecord}
-            transcript={lastTranscript}
-            maxDurationSec={90}
           />
         ) : null}
 
         {step === "midpoint" ? (
           <div className="flex w-full flex-col items-center gap-8">
-            <h2 className="max-w-lg text-center font-display text-2xl font-semibold leading-snug text-foreground">
-              {QUESTIONS.midpoint}
-            </h2>
+            <VoiceOrb mode={coachSpeaking ? "speaking" : "idle"} />
+            <SpokenCaption text={caption ?? QUESTIONS.midpoint} hint="Checkpoint" />
             <RadarSnapshot
               scores={scoresForDisplay}
-              caption="Scores from your city description — fluency, pacing, pronunciation, grammar, and vocabulary."
+              caption="Your snapshot so far — from your city description."
+              className="rounded-3xl border border-white/10 bg-card/30 p-6 backdrop-blur-md"
             />
             {!showContact ? (
               <div className="flex flex-wrap justify-center gap-3">
                 <Button
                   variant="glow"
+                  disabled={coachSpeaking}
                   onClick={() => {
                     setFullPath(true);
                     setShowContact(false);
@@ -396,8 +504,9 @@ export function QuickAnalysisFlow() {
                 </Button>
                 <Button
                   variant="outline"
+                  disabled={coachSpeaking}
                   onClick={() => {
-                    speak(QUESTIONS.thank_you_no);
+                    void speak(QUESTIONS.thank_you_no);
                     setShowContact(true);
                   }}
                 >
@@ -408,7 +517,7 @@ export function QuickAnalysisFlow() {
               <ContactForm
                 scores={scoresForDisplay}
                 onSuccess={() => {
-                  speak(QUESTIONS.thank_you_submit);
+                  void speak(QUESTIONS.thank_you_submit);
                   setStep("thank_you");
                 }}
               />
@@ -418,38 +527,41 @@ export function QuickAnalysisFlow() {
 
         {step === "q4_objects" ? (
           <QuestionStep
-            stepLabel={stepProgress ? `Step ${stepProgress.current} of ${stepProgress.total}` : undefined}
-            question={QUESTIONS.q4_objects}
+            stepLabel={`Question ${STEP_PROGRESS.q4_objects.current}`}
+            spokenPrompt={QUESTIONS.q4_objects}
+            coachSpeaking={coachSpeaking}
             recording={recording}
-            analyzing={false}
             onToggleRecord={onToggleRecord}
-            transcript={lastTranscript}
           />
         ) : null}
 
         {step === "q5_visual" ? (
           <QuestionStep
-            stepLabel={stepProgress ? `Step ${stepProgress.current} of ${stepProgress.total}` : undefined}
-            question={QUESTIONS.q5_visual}
+            stepLabel={`Question ${STEP_PROGRESS.q5_visual.current}`}
+            spokenPrompt={QUESTIONS.q5_visual}
+            coachSpeaking={coachSpeaking}
             recording={recording}
             analyzing={analyzing}
             analysisStatus={analysisStatus}
             onToggleRecord={onToggleRecord}
-            transcript={lastTranscript}
-            maxDurationSec={60}
           >
-            <VisualPromptScene className="mx-auto w-full max-w-[320px] rounded-2xl border border-border/70" />
+            <VisualPromptScene className="mx-auto w-full max-w-[300px] rounded-2xl border border-white/15 shadow-xl" />
           </QuestionStep>
         ) : null}
 
         {step === "results" ? (
           <div className="flex w-full flex-col items-center gap-8">
-            <h2 className="text-center font-display text-2xl font-semibold text-foreground">Your English snapshot</h2>
-            {analyzing ? (
-              <p className="text-sm text-muted-foreground">{analysisStatus ?? "Building your full profile…"}</p>
-            ) : (
+            <VoiceOrb mode={analyzing ? "thinking" : coachSpeaking ? "speaking" : "idle"} />
+            <SpokenCaption
+              text={analyzing ? analysisStatus : caption ?? "Your English snapshot"}
+              hint={analyzing ? "Analyzing" : "Results"}
+            />
+            {analyzing ? null : (
               <>
-                <RadarSnapshot scores={displayScores} />
+                <RadarSnapshot
+                  scores={displayScores}
+                  className="rounded-3xl border border-white/10 bg-card/30 p-6 backdrop-blur-md"
+                />
                 {coachSummary ? (
                   <div className="w-full">
                     <CoachInsightCards
@@ -464,7 +576,7 @@ export function QuickAnalysisFlow() {
                   <ContactForm
                     scores={displayScores}
                     onSuccess={() => {
-                      speak(QUESTIONS.thank_you_submit);
+                      void speak(QUESTIONS.thank_you_submit);
                       setStep("thank_you");
                     }}
                   />
@@ -475,17 +587,11 @@ export function QuickAnalysisFlow() {
         ) : null}
 
         {step === "thank_you" ? (
-          <div className="flex flex-col items-center gap-4 text-center">
-            <h2 className="font-display text-2xl font-semibold text-foreground">Thank you</h2>
-            <p className="max-w-md text-muted-foreground">
-              We&apos;ll be in touch soon with a personalised plan. You can also{" "}
-              <a href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
-                sign in
-              </a>{" "}
-              for the full Auravo experience.
-            </p>
+          <div className="flex flex-col items-center gap-8 py-6">
+            <VoiceOrb mode={coachSpeaking ? "speaking" : "idle"} />
+            <SpokenCaption text={caption ?? QUESTIONS.thank_you_page} hint="Thank you" />
             <Button variant="outline" asChild>
-              <a href="/">Back to home</a>
+              <Link href="/">Back to home</Link>
             </Button>
           </div>
         ) : null}

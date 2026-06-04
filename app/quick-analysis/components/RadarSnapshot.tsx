@@ -16,7 +16,12 @@ export function RadarSnapshot({
 }) {
   const dimensions = scoresToRadarDimensions(scores);
   return (
-    <div className={cn("flex flex-col items-center gap-3", className)}>
+    <div
+      className={cn(
+        "flex flex-col items-center gap-3 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[0_0_60px_-12px_rgba(255,102,0,0.3)] backdrop-blur-xl",
+        className,
+      )}
+    >
       <SkillRadar dimensions={dimensions} className="mx-auto w-full max-w-[300px] opacity-[0.97]" />
       {caption ? <p className="max-w-md text-center text-sm text-muted-foreground">{caption}</p> : null}
     </div>

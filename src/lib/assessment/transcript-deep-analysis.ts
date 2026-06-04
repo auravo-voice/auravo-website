@@ -1,5 +1,6 @@
 import "server-only";
 import type { GrammarAnalysisResult } from "@/lib/analysis/grammar-analysis";
+import { filterSpokenGrammarErrors } from "@/lib/analysis/spoken-grammar-filter";
 import type {
   AsrWordHint,
   BaselineAnalysis,
@@ -33,11 +34,6 @@ const GRAMMAR_RULES: { label: string; re: RegExp; suggestion: string }[] = [
     label: "Agreement",
     re: /\btheir\s+is\b/gi,
     suggestion: "Use “there is” for existence, or rewrite possession: “they have a …” instead of “their is …”.",
-  },
-  {
-    label: "Punctuation",
-    re: /[.!?][A-Za-z]/g,
-    suggestion: "Add a space after sentence-ending punctuation before the next word.",
   },
   {
     label: "Capitalization",
@@ -111,7 +107,7 @@ export function detectLegacyGrammarFlags(text: string): GrammarFlag[] {
           label: "Sentence length",
           excerpt: `${s.slice(0, 80)}${s.length > 80 ? "…" : ""}`,
           suggestion:
-            "This block reads like a very long run-on. Try splitting into two or three shorter sentences with periods, then read aloud with a breath between each.",
+            "This block is one long spoken thought. Try pausing between ideas — two or three shorter phrases with a breath between each.",
           source: "legacy",
         });
       }
@@ -122,8 +118,8 @@ export function detectLegacyGrammarFlags(text: string): GrammarFlag[] {
   return grammarFlags;
 }
 
-function groqErrorsToFlags(analysis: GrammarAnalysisResult): GrammarFlag[] {
-  return analysis.errors.map((e) => ({
+function groqErrorsToFlags(analysis: GrammarAnalysisResult, transcript: string): GrammarFlag[] {
+  return filterSpokenGrammarErrors(analysis.errors, transcript).map((e) => ({
     label: grammarErrorTypeLabel(e.type),
     excerpt: e.error,
     correction: e.correction,
@@ -155,7 +151,7 @@ export function analyzeTranscriptDeep(
   grammarAnalysis?: GrammarAnalysisResult | null,
 ): BaselineAnalysis {
   const legacyGrammarFlags = detectLegacyGrammarFlags(text);
-  const groqGrammarFlags = grammarAnalysis ? groqErrorsToFlags(grammarAnalysis) : [];
+  const groqGrammarFlags = grammarAnalysis ? groqErrorsToFlags(grammarAnalysis, text) : [];
   const grammarFlags = mergeGrammarFlags(legacyGrammarFlags, groqGrammarFlags);
 
   const pronunciationTips: PronunciationTip[] = [];
@@ -180,7 +176,7 @@ export function analyzeTranscriptDeep(
     pronunciationTips,
     grammarAnalysis: grammarAnalysis
       ? {
-          errors: grammarAnalysis.errors,
+          errors: filterSpokenGrammarErrors(grammarAnalysis.errors, text),
           score: grammarAnalysis.score,
           summary: grammarAnalysis.summary,
           strengths: grammarAnalysis.strengths,

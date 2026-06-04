@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { runDeterministicQuickAnalysis } from "@/lib/quick-analysis/deterministic-analysis";
+import { transcribeQuickAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
 import { runQuickAnalysisFull } from "@/lib/quick-analysis/run-full-analysis";
 import { scoreQuickAnalysisFromTranscript } from "@/lib/quick-analysis/score-from-transcript";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
@@ -52,6 +53,34 @@ export async function POST(req: Request) {
     }
   }
 
+  if (mode === "segment") {
+    const audio = form.get("audio");
+    if (!(audio instanceof Blob) || audio.size < 1) {
+      return NextResponse.json({ error: "Audio is required." }, { status: 400 });
+    }
+    const browserRaw = form.get("browserTranscript");
+    const browserTranscript = typeof browserRaw === "string" ? browserRaw.trim() : "";
+    const startedAt = Date.now();
+    try {
+      const result = await transcribeQuickAnalysisSegment(audio, browserTranscript);
+      console.info("[quick-analysis/analyze] segment ok", {
+        ms: Date.now() - startedAt,
+        whispered: result.whispered,
+        chars: result.transcript.length,
+      });
+      return NextResponse.json(result);
+    } catch (e) {
+      if (e instanceof TranscriptionUnavailableError) {
+        return NextResponse.json(
+          { error: e.message || "Speech recognition is unavailable on the server." },
+          { status: 503 },
+        );
+      }
+      const msg = e instanceof Error ? e.message : "Segment transcription failed.";
+      return NextResponse.json({ error: msg }, { status: 422 });
+    }
+  }
+
   if (mode === "full") {
     const blobs = form
       .getAll("audio")
@@ -66,14 +95,23 @@ export async function POST(req: Request) {
     const segmentTranscripts = form
       .getAll("segmentTranscript")
       .map((entry) => (typeof entry === "string" ? entry.trim() : ""));
+    const segmentServerTranscripts = form
+      .getAll("segmentServerTranscript")
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""));
 
     const startedAt = Date.now();
     console.info("[quick-analysis/analyze] full mode started", {
       clips: blobs.length,
       browserSegments: segmentTranscripts.filter((t) => t.length > 0).length,
+      prefetchedSegments: segmentServerTranscripts.filter((t) => t.length > 0).length,
     });
     try {
-      const result = await runQuickAnalysisFull(blobs, transcriptPrefix, segmentTranscripts);
+      const result = await runQuickAnalysisFull(
+        blobs,
+        transcriptPrefix,
+        segmentTranscripts,
+        segmentServerTranscripts,
+      );
       console.info("[quick-analysis/analyze] full mode ok", {
         ms: Date.now() - startedAt,
         transcriptChars: result.transcript.length,
@@ -109,5 +147,8 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ error: "Invalid mode. Use transcript, deterministic, or full." }, { status: 400 });
+  return NextResponse.json(
+    { error: "Invalid mode. Use transcript, deterministic, segment, or full." },
+    { status: 400 },
+  );
 }

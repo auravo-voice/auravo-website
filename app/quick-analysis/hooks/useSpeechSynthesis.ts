@@ -20,6 +20,7 @@ export function useSpeechSynthesis() {
   const audioUnlockedRef = useRef(false);
   const pendingAfterUnlockRef = useRef<{ text: string; onEnd?: () => void } | null>(null);
   const speakImplRef = useRef<(text: string, onEnd?: () => void) => Promise<void>>(async () => {});
+  const ttsCacheRef = useRef(new Map<string, Blob>());
 
   const revokeObjectUrl = useCallback(() => {
     if (objectUrlRef.current) {
@@ -104,6 +105,31 @@ export function useSpeechSynthesis() {
       audio.load();
     });
 
+  const fetchTtsBlob = useCallback(async (text: string, signal?: AbortSignal): Promise<Blob> => {
+    const res = await fetch("/api/quick-analysis/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+      signal,
+    });
+    if (!res.ok) throw new Error("TTS API failed");
+    const contentType = res.headers.get("Content-Type")?.split(";")[0]?.trim() || "audio/mpeg";
+    return new Blob([await res.arrayBuffer()], { type: contentType });
+  }, []);
+
+  const prefetchTts = useCallback(
+    (text: string) => {
+      const key = text.trim();
+      if (!key || ttsCacheRef.current.has(key)) return;
+      void fetchTtsBlob(key)
+        .then((blob) => {
+          if (!ttsCacheRef.current.has(key)) ttsCacheRef.current.set(key, blob);
+        })
+        .catch(() => {});
+    },
+    [fetchTtsBlob],
+  );
+
   const speak = useCallback(
     async (text: string, onEnd?: () => void) => {
       stopAudio();
@@ -117,20 +143,15 @@ export function useSpeechSynthesis() {
       const timeoutId = setTimeout(() => abort.abort("timeout"), TTS_FETCH_TIMEOUT_MS);
 
       try {
-        const res = await fetch("/api/quick-analysis/tts", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text }),
-          signal: abort.signal,
-        });
+        const cached = ttsCacheRef.current.get(text);
+        if (cached) ttsCacheRef.current.delete(text);
+
+        const audioBlob =
+          cached ?? (await fetchTtsBlob(text, abort.signal));
 
         clearTimeout(timeoutId);
         if (speakGenerationRef.current !== generation) return;
 
-        if (!res.ok) throw new Error("TTS API failed");
-
-        const contentType = res.headers.get("Content-Type")?.split(";")[0]?.trim() || "audio/mpeg";
-        const audioBlob = new Blob([await res.arrayBuffer()], { type: contentType });
         revokeObjectUrl();
         const url = URL.createObjectURL(audioBlob);
         objectUrlRef.current = url;
@@ -195,7 +216,7 @@ export function useSpeechSynthesis() {
         }
       }
     },
-    [stopAudio, speakWithBrowserFallback, revokeObjectUrl],
+    [stopAudio, speakWithBrowserFallback, revokeObjectUrl, fetchTtsBlob],
   );
 
   speakImplRef.current = speak;
@@ -219,5 +240,5 @@ export function useSpeechSynthesis() {
     onEndRef.current = undefined;
   }, [stopAudio]);
 
-  return { speak, stop, speaking, caption, unlockFromGesture };
+  return { speak, stop, speaking, caption, unlockFromGesture, prefetchTts };
 }

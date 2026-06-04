@@ -93,7 +93,7 @@ export type RunAnalysisInput = {
    * alongside audio (assessment finalize fast path).
    */
   preTranscribed?: TranscriptionResult & { adapter?: string };
-  /** Skip concat Whisper when `preTranscribed` includes stitched per-segment word timings. */
+  /** Skip concat Whisper when `preTranscribed` text is already known; acoustic/VAD still run on audio. */
   reusePreTranscription?: boolean;
   /** Conversation context for simulations / meeting rehearsals. */
   conversation?: { turns: ConversationTurnInput[] };
@@ -192,9 +192,10 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
   let acoustic: AcousticResult;
   let vad: VadResult;
 
-  const reusePreTranscription =
-    Boolean(input.reusePreTranscription && input.preTranscribed?.text?.trim()) &&
-    (input.preTranscribed?.wordTimings?.length ?? 0) > 0;
+  /** When true with audio + preTranscribed text, skip concat Whisper; acoustic/VAD still run on audio. */
+  const reusePreTranscription = Boolean(
+    input.reusePreTranscription && input.preTranscribed?.text?.trim(),
+  );
 
   if (resolved && reusePreTranscription && input.preTranscribed) {
     adapterName = input.preTranscribed.adapter ?? "segment-stitch";

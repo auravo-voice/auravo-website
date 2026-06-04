@@ -186,6 +186,8 @@ printf '%s\n' '[Service]' 'Environment="OLLAMA_HOST=0.0.0.0:11434"' | sudo tee /
 sudo systemctl daemon-reload && sudo systemctl restart ollama
 ```
 
+**Nginx upload limit:** Quick Analysis final step uploads several WebM clips in one POST. The `auravo-web` vhost must set `client_max_body_size 100m;` (default nginx is 1m → HTTP 413). Other vhosts on the server (`voassess`, `wordle`) already use 100m.
+
 **Deploy** (from repo root on the server):
 
 ```bash

@@ -6,11 +6,17 @@ export async function readJsonResponse(res: Response): Promise<Record<string, un
     throw new Error(res.ok ? "Empty response from server." : `Request failed (${res.status}).`);
   }
   if (trimmed.startsWith("<") || trimmed.startsWith("<!")) {
-    throw new Error(
-      res.status === 504
-        ? "The server took too long to process your recording. Try again — if it keeps failing, record shorter segments."
-        : `Server error (${res.status}). Try again in a moment.`,
-    );
+    if (res.status === 413) {
+      throw new Error(
+        "Your recordings were too large to upload. Try shorter answers (under about a minute each) or use Chrome/Edge so we need less audio on the server.",
+      );
+    }
+    if (res.status === 504) {
+      throw new Error(
+        "The server took too long to process your recording. Try again — if it keeps failing, record shorter segments.",
+      );
+    }
+    throw new Error(`Server error (${res.status}). Try again in a moment.`);
   }
   try {
     const parsed = JSON.parse(trimmed) as unknown;

@@ -4,18 +4,13 @@ import { rm } from "node:fs/promises";
 
 import { runAnalysis } from "@/lib/analysis/run-analysis";
 import { mergeSegmentTranscriptions } from "@/lib/assessment/merge-segment-transcriptions";
-import type { SegmentTranscriptMeta } from "@/lib/assessment/segment-transcript-meta";
-import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 import { getTranscriptionAdapter, TranscriptionUnavailableError } from "@/lib/transcription";
-import type { TranscriptionResult } from "@/lib/transcription/types";
+import { prepareAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
 
 const QUICK_ANALYSIS_USER_ID = "00000000-0000-0000-0000-000000000099";
 
 /** Gap between Q3–Q5 clips when concatenating for acoustic/VAD (avoids false energy dips at joins). */
 const CONCAT_GAP_MS = 450;
-
-/** Trust browser STT for a segment when it has at least this many words — skips a Whisper pass for that clip. */
-const SEGMENT_BROWSER_TRANSCRIPT_MIN_WORDS = 5;
 
 export type QuickAnalysisFullResult = {
   scores: Awaited<ReturnType<typeof runAnalysis>>["scores"];
@@ -23,66 +18,15 @@ export type QuickAnalysisFullResult = {
   coachSummary: Awaited<ReturnType<typeof runAnalysis>>["coachSummary"];
 };
 
-type SegmentRow = {
-  text: string;
-  durationMs: number | null;
-  meta: SegmentTranscriptMeta | null;
-};
-
-function wordCount(text: string): number {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-function metaFromTranscription(transcription: TranscriptionResult): SegmentTranscriptMeta | null {
-  if (!transcription.wordTimings?.length) return null;
-  return {
-    wordTimings: transcription.wordTimings,
-    segments: transcription.segments,
-    asrWordHints: transcription.asrWordHints,
-    durationSec: transcription.durationSec,
-    modelName: transcription.modelName,
-    language: transcription.language,
-  };
-}
-
-async function persistClip(
-  blob: Blob,
-  index: number,
-): Promise<{ absolutePath: string; durationMs: number | null }> {
-  const { absolutePath } = await writeTempAudioFile(`qa-full-${Date.now()}-${index}`, blob);
-  return { absolutePath, durationMs: null };
-}
-
-async function transcribeClip(
-  blob: Blob,
-  index: number,
-): Promise<{ absolutePath: string; row: SegmentRow }> {
-  const { absolutePath } = await writeTempAudioFile(`qa-full-${Date.now()}-${index}`, blob);
-  const adapter = getTranscriptionAdapter();
-  const transcription = await adapter.transcribe(absolutePath);
-  const text = transcription.text.trim();
-  return {
-    absolutePath,
-    row: {
-      text,
-      durationMs:
-        transcription.durationSec != null && transcription.durationSec > 0
-          ? Math.round(transcription.durationSec * 1000)
-          : null,
-      meta: metaFromTranscription(transcription),
-    },
-  };
-}
-
 /**
- * Full Quick Analysis — per-segment Whisper (parallel) when needed, stitch when timings exist,
- * otherwise one concat Whisper. Assessment finalizes faster because it transcribes on upload;
- * this path optimizes the demo flow the same way.
+ * Full Quick Analysis — parallel per-segment Whisper when needed, then acoustic/VAD + Groq on
+ * stitched text without a second concat Whisper pass.
  */
 export async function runQuickAnalysisFull(
   blobs: Blob[],
   transcriptPrefix: string,
   segmentTranscripts?: string[],
+  segmentServerTranscripts?: string[],
 ): Promise<QuickAnalysisFullResult> {
   if (blobs.length < 1) {
     throw new Error("At least one audio clip is required.");
@@ -93,21 +37,15 @@ export async function runQuickAnalysisFull(
   try {
     const adapter = getTranscriptionAdapter();
     const browserTexts = segmentTranscripts ?? [];
+    const serverTexts = segmentServerTranscripts ?? [];
 
     const prepared = await Promise.all(
-      blobs.map(async (blob, i) => {
-        const browser = (browserTexts[i] ?? "").trim();
-        if (wordCount(browser) >= SEGMENT_BROWSER_TRANSCRIPT_MIN_WORDS) {
-          const { absolutePath, durationMs } = await persistClip(blob, i);
-          return {
-            absolutePath,
-            row: { text: browser, durationMs, meta: null as SegmentTranscriptMeta | null },
-            whispered: false,
-          };
-        }
-        const { absolutePath, row } = await transcribeClip(blob, i);
-        return { absolutePath, row, whispered: true };
-      }),
+      blobs.map((blob, i) =>
+        prepareAnalysisSegment(blob, i, {
+          browserTranscript: browserTexts[i],
+          serverTranscript: serverTexts[i],
+        }),
+      ),
     );
 
     tempPaths.push(...prepared.map((p) => p.absolutePath));
@@ -143,15 +81,11 @@ export async function runQuickAnalysisFull(
             : null,
         gapMs: CONCAT_GAP_MS,
       },
-      ...(canReuseTimings && stitched
-        ? {
-            preTranscribed: { ...stitched, adapter: adapter.name },
-            reusePreTranscription: true,
-          }
-        : {
-            preTranscribed: { text: stitchedText },
-            reusePreTranscription: false,
-          }),
+      preTranscribed:
+        canReuseTimings && stitched
+          ? { ...stitched, adapter: adapter.name }
+          : { text: stitchedText, adapter: "quick-analysis-stitch" },
+      reusePreTranscription: true,
       context: {
         userId: QUICK_ANALYSIS_USER_ID,
         runCoachSummary: true,

@@ -27,7 +27,8 @@ fi
 : "${GROQ_API_KEY:?Set GROQ_API_KEY in $ENV_FILE before deploy}"
 
 SMTP_HOST="${SMTP_HOST:-stalwart}"
-SMTP_PORT="${SMTP_PORT:-587}"
+# Port 25: internal relay on the voca network (no auth). Use 587 + SMTP_USER/PASS for authenticated submission.
+SMTP_PORT="${SMTP_PORT:-25}"
 SMTP_SECURE="${SMTP_SECURE:-false}"
 QUICK_ANALYSIS_LEAD_FROM="${QUICK_ANALYSIS_LEAD_FROM:-support@auravo.ai}"
 QUICK_ANALYSIS_LEAD_TO="${QUICK_ANALYSIS_LEAD_TO:-support@auravo.ai}"

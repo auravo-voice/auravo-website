@@ -21,18 +21,34 @@ function smtpTransportOptions(): {
   const host =
     process.env.SMTP_HOST?.trim() ||
     (process.env.NODE_ENV === "production" ? "stalwart" : "127.0.0.1");
-  const portRaw = process.env.SMTP_PORT?.trim() ?? "587";
+  const defaultPort = process.env.NODE_ENV === "production" ? "25" : "587";
+  const portRaw = process.env.SMTP_PORT?.trim() ?? defaultPort;
   const port = Number.parseInt(portRaw, 10);
   const secure = process.env.SMTP_SECURE === "true";
   const user = process.env.SMTP_USER?.trim();
   const pass = process.env.SMTP_PASS?.trim();
-  const opts = {
+  const resolvedPort = Number.isFinite(port) ? port : Number.parseInt(defaultPort, 10);
+  const opts: {
+    host: string;
+    port: number;
+    secure: boolean;
+    auth?: { user: string; pass: string };
+    tls?: { servername?: string; rejectUnauthorized?: boolean };
+  } = {
     host,
-    port: Number.isFinite(port) ? port : 587,
+    port: resolvedPort,
     secure,
   };
   if (user && pass) {
-    return { ...opts, auth: { user, pass } };
+    opts.auth = { user, pass };
+  }
+  // Submission (587) presents a cert for mail.auravo.ai; internal hostname is often "stalwart".
+  if (!secure && resolvedPort === 587) {
+    const servername = process.env.SMTP_TLS_SERVERNAME?.trim() || "mail.auravo.ai";
+    opts.tls = {
+      servername,
+      rejectUnauthorized: process.env.SMTP_TLS_INSECURE === "true",
+    };
   }
   return opts;
 }

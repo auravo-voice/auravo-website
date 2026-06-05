@@ -27,6 +27,29 @@ export const QUESTIONS = {
     "Thank you! We'll be in touch soon with a personalised plan. You can also sign in to Auravo for the full coaching experience.",
 } as const;
 
+/** Ordered question keys sent to full analysis (Q1–Q5 audio + transcript segments). */
+export const ANALYSIS_QUESTION_KEYS = [
+  "q1_city",
+  "q2_duration",
+  "q3_about_city",
+  "q4_objects",
+  "q5_visual",
+] as const;
+
+export type AnalysisQuestionKey = (typeof ANALYSIS_QUESTION_KEYS)[number];
+
+/** Short labels for per-question transcript sections in results. */
+export const QUESTION_SEGMENT_LABELS: Record<AnalysisQuestionKey, string> = {
+  q1_city: "Where do you live",
+  q2_duration: "How long you've lived there",
+  q3_about_city: "About your city",
+  q4_objects: "Objects around you",
+  q5_visual: "Describe the scene",
+};
+
+/** Q3 is index 2 in {@link ANALYSIS_QUESTION_KEYS} (midpoint scoring). */
+export const Q3_ANALYSIS_SEGMENT_INDEX = 2;
+
 export const STEP_PROGRESS: Record<string, { current: number; total: number }> = {
   q1_city: { current: 1, total: 6 },
   q2_duration: { current: 2, total: 6 },

@@ -4,6 +4,7 @@ import type { DimensionKey } from "@/lib/assessment/dimensions-from-scores";
 import { DIMENSION_LABELS } from "@/lib/assessment/dimensions-from-scores";
 import type { VoiceAnalysis } from "@/lib/analysis/scoring";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
+import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 import { analyzeTranscriptWithCoachingFallback } from "@/lib/coach/fallbacks";
 import {
@@ -26,6 +27,8 @@ export type FinalCoachingSummary = {
   strengths: string[];
   improvementAreas: string[];
   scoreExplanations?: Record<string, string>;
+  /** Word-choice upgrades from Groq vocabulary pass (Quick Analysis + full sessions). */
+  vocabularySuggestions?: VocabularySuggestion[];
   fallbackUsed: boolean;
   warning: string | null;
 };

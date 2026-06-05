@@ -6,6 +6,8 @@ import { scoresFromAnalysis } from "@/lib/analysis/scoring";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import { writeTempAudioFile } from "@/lib/storage/temp-audio";
 import { getTranscriptionAdapter } from "@/lib/transcription";
+import type { QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
+import { wordConfidencesFromTimings } from "@/lib/quick-analysis/word-confidences";
 import type { WordTiming } from "@/lib/transcription/types";
 
 const LOW_CONFIDENCE_THRESHOLD = 0.55;
@@ -14,6 +16,7 @@ export type DeterministicAnalysisResult = {
   scores: SixDimensionScores;
   transcript: string;
   lowConfidenceWords: string[];
+  wordConfidences: QuickAnalysisWordConfidence[];
 };
 
 function lowConfidenceTokens(wordTimings: WordTiming[] | undefined): string[] {
@@ -55,6 +58,7 @@ export async function runDeterministicQuickAnalysis(audio: Blob): Promise<Determ
       scores: voice.scores,
       transcript,
       lowConfidenceWords: lowConfidenceTokens(transcription.wordTimings),
+      wordConfidences: wordConfidencesFromTimings(transcription.wordTimings),
     };
   } finally {
     await rm(absolutePath, { force: true }).catch(() => {});

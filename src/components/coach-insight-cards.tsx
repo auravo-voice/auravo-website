@@ -1,4 +1,5 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 
 type Props = {
@@ -6,14 +7,22 @@ type Props = {
   strength?: string | null;
   patterns?: CoachingPattern[];
   acousticPatterns?: AcousticCoachingPattern[];
+  vocabularySuggestions?: VocabularySuggestion[];
 };
 
-export function CoachInsightCards({ biggestIssue, strength, patterns = [], acousticPatterns = [] }: Props) {
+export function CoachInsightCards({
+  biggestIssue,
+  strength,
+  patterns = [],
+  acousticPatterns = [],
+  vocabularySuggestions = [],
+}: Props) {
   const hasContent =
     (biggestIssue && biggestIssue.trim()) ||
     (strength && strength.trim()) ||
     patterns.length > 0 ||
-    acousticPatterns.length > 0;
+    acousticPatterns.length > 0 ||
+    vocabularySuggestions.length > 0;
   if (!hasContent) return null;
 
   return (
@@ -40,6 +49,31 @@ export function CoachInsightCards({ biggestIssue, strength, patterns = [], acous
         </Card>
       ) : null}
 
+      {vocabularySuggestions.length > 0 ? (
+        <Card className="border-violet-500/20 bg-violet-500/5">
+          <CardHeader>
+            <CardTitle className="text-lg">Simpler word choices</CardTitle>
+            <CardDescription>Same idea — said in a clearer way. Plain tips, no fancy terms.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {vocabularySuggestions.map((s, i) => (
+              <div
+                key={`${s.phrase}-${i}`}
+                className="rounded-xl border border-border/60 bg-muted/15 p-4"
+              >
+                <p className="text-sm text-muted-foreground">
+                  Instead of <span className="font-medium text-foreground">&ldquo;{s.phrase}&rdquo;</span>
+                </p>
+                <p className="mt-1 text-sm font-medium text-foreground">
+                  Try: &ldquo;{s.improvement}&rdquo;
+                </p>
+                <p className="mt-2 text-sm text-muted-foreground">{s.reason}</p>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {patterns.length > 0 ? (
         <Card>
           <CardHeader>
@@ -54,7 +88,7 @@ export function CoachInsightCards({ biggestIssue, strength, patterns = [], acous
                   &ldquo;{p.evidence}&rdquo;
                 </blockquote>
                 <p className="mt-2 text-sm text-muted-foreground">{p.impact}</p>
-                <p className="mt-2 text-sm font-medium text-foreground">Try this week: {p.fix}</p>
+                <p className="mt-2 text-sm font-medium text-foreground">Try this: {p.fix}</p>
               </div>
             ))}
           </CardContent>
@@ -72,7 +106,7 @@ export function CoachInsightCards({ biggestIssue, strength, patterns = [], acous
               <div key={`${p.pattern}-${i}`} className="rounded-xl border border-border/60 bg-muted/15 p-4">
                 <p className="font-medium text-foreground">{p.pattern}</p>
                 <p className="mt-1 text-sm text-muted-foreground">{p.timestamps}</p>
-                <p className="mt-2 text-sm font-medium text-foreground">Try this week: {p.fix}</p>
+                <p className="mt-2 text-sm font-medium text-foreground">Try this: {p.fix}</p>
               </div>
             ))}
           </CardContent>

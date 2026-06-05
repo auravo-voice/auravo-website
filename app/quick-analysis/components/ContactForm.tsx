@@ -27,7 +27,7 @@ export function ContactForm({ scores, onSuccess }: Props) {
       const res = await fetch("/api/quick-analysis/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, phone: phone.trim() || undefined, scores }),
+        body: JSON.stringify({ name, email, phone: phone.trim(), scores }),
       });
       const data = await readJsonResponse(res);
       if (!res.ok) {
@@ -89,7 +89,7 @@ export function ContactForm({ scores, onSuccess }: Props) {
       </div>
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       <Button type="submit" variant="glow" className="w-full" disabled={submitting}>
-        {submitting ? "Sending…" : "Send my details"}
+        {submitting ? "Saving…" : "Save my details"}
       </Button>
     </form>
   );

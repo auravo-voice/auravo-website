@@ -77,4 +77,18 @@ CREATE TABLE IF NOT EXISTS recording_review (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_recording_review_updated_at ON recording_review(updated_at DESC);
+CREATE TABLE IF NOT EXISTS quick_analysis_lead (
+  id TEXT PRIMARY KEY NOT NULL,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  pronunciation INTEGER NOT NULL,
+  grammar INTEGER NOT NULL,
+  fluency INTEGER NOT NULL,
+  vocabulary INTEGER NOT NULL,
+  filler_words INTEGER NOT NULL,
+  pacing INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quick_analysis_lead_created_at ON quick_analysis_lead(created_at DESC);
 `;

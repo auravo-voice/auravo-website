@@ -4,6 +4,7 @@ import type { AcousticFeatures, AcousticResult } from "@/lib/audio/acoustic";
 import type { WordTiming, SegmentTiming } from "@/lib/transcription/types";
 import type { VadResult, VadFeatures } from "@/lib/audio/vad";
 import type { GrammarAnalysisResult } from "@/lib/analysis/grammar-analysis";
+import type { VocabularyAnalysisResult } from "@/lib/analysis/vocabulary-analysis";
 import { significantCollapseCount } from "@/lib/audio/collapse-segments";
 import { computeDerivedMetrics, type DerivedMetrics } from "./derive";
 
@@ -267,7 +268,22 @@ export function scoreGrammar(
   return { score: clamp(raw), explanation, qualityFlag: "transcript_only" };
 }
 
-export function scoreVocabulary(d: DerivedMetrics): ScoreResult {
+export function scoreVocabulary(
+  d: DerivedMetrics,
+  vocabularyAnalysis?: VocabularyAnalysisResult | null,
+): ScoreResult {
+  if (vocabularyAnalysis?.summary) {
+    const suggestionNote =
+      vocabularyAnalysis.suggestions.length > 0
+        ? ` ${vocabularyAnalysis.suggestions.length} word-choice upgrade${vocabularyAnalysis.suggestions.length === 1 ? "" : "s"} noted below.`
+        : "";
+    return {
+      score: vocabularyAnalysis.score,
+      explanation: `${vocabularyAnalysis.summary}${suggestionNote}`,
+      qualityFlag: "transcript_only",
+    };
+  }
+
   const raw = clamp(
     45 + d.lexicalDiversity * 85 - Math.min(d.fillerRatePerMin * 0.5, 10) - Math.min(d.hedgeCount * 4, 20),
     35,
@@ -356,6 +372,8 @@ export function scoresFromAnalysis(input: {
   vad?: VadResult;
   /** Groq grammar analysis — when present, drives the grammar score. */
   grammarAnalysis?: GrammarAnalysisResult | null;
+  /** Groq vocabulary / word-choice analysis — when present, drives the vocabulary score. */
+  vocabularyAnalysis?: VocabularyAnalysisResult | null;
 }): VoiceAnalysis {
   const features =
     input.acoustic && input.acoustic.available ? input.acoustic.features : null;
@@ -375,7 +393,7 @@ export function scoresFromAnalysis(input: {
   const confidence = scoreConfidence(derived, features);
   const pronunciation = scorePronunciationApprox(derived, features);
   const grammar = scoreGrammar(derived, input.transcript, input.grammarAnalysis);
-  const vocabulary = scoreVocabulary(derived);
+  const vocabulary = scoreVocabulary(derived, input.vocabularyAnalysis);
   const fillerWords = scoreFillerWords(derived);
 
   const scores: SixDimensionScores = {

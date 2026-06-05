@@ -4,6 +4,7 @@ import { z } from "zod";
 import { groqChatStructured } from "@/lib/groq/chat-json";
 import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
 import { finalizeSpokenGrammarAnalysis } from "@/lib/analysis/spoken-grammar-filter";
+import { PLAIN_LANGUAGE_COACH_RULES } from "@/lib/coach/plain-language-style";
 
 export type GrammarErrorType =
   | "tense"
@@ -82,7 +83,7 @@ function normalizeGrammarPayload(raw: unknown): unknown {
     if (!error || !correction) continue;
     const explanation =
       String(row.explanation ?? row.reason ?? row.note ?? "").trim() ||
-      `Use "${correction}" instead of "${error}".`;
+      `Say "${correction}" instead of "${error}".`;
     errors.push({
       error,
       correction,
@@ -132,39 +133,43 @@ export async function analyzeGrammarWithGroq(
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
 
-  const prompt = `You are a professional English grammar coach analyzing a SPEECH transcript from automatic speech recognition (ASR).
+  const prompt = `You help someone fix grammar mistakes in a voice recording transcript (often no punctuation).
 
-The text usually has NO punctuation marks (no commas, semicolons, or periods). Only flag mistakes the speaker actually said — wrong words, tense, articles, agreement, prepositions.
+Only flag what they actually said wrong — not missing commas or periods.
 
 Focus on:
-- Tense errors (e.g. "I was go", "he have done", "we will went")
-- Article errors (e.g. "I have meeting", "she is engineer", "I went to hospital")
-- Subject-verb agreement (e.g. "he don't", "they was", "she have")
-- Preposition errors (e.g. "working since 5 years", "good in English", "discuss about")
-- Word choice errors (e.g. "could of", "should of", "make a research")
+- Wrong tense (e.g. "I was go", "he have done")
+- Missing or wrong small words like a/an/the (e.g. "I have meeting")
+- Verb doesn't match the subject (e.g. "he don't", "they was")
+- Wrong little connecting words (e.g. "good in English", "discuss about", "since 5 years")
+- Obvious wrong phrases (e.g. "could of", "should of") — not vocabulary upgrades
 
-Do NOT flag or mention:
-- Missing or wrong punctuation (semicolons, commas, periods, capitalization)
-- "Independent clauses", "run-on sentences", or how to join clauses with punctuation
-- Informal spoken style or contractions
-- Filler words
-- Incomplete sentences caused by natural speech patterns
+Do NOT flag:
+- Vague or boring word choices (another tool handles that)
+- Missing punctuation or capitalization
+- Long sentence / "run-on" lecture terms
+- Normal casual speech or fillers
+- Cutting them off mid-thought
 
-Every "error" field MUST be an exact substring copied from the transcript (spoken words only).
-Every "correction" MUST be spoken words the learner can say aloud — not punctuation edits.
+Every "error" MUST be copied exactly from the transcript.
+Every "correction" MUST be words they can say out loud.
 
-Return JSON only with this exact shape:
+${PLAIN_LANGUAGE_COACH_RULES}
+
+Each "explanation" = one short simple sentence (e.g. "Use past tense here because you already finished" — NOT "Preterite required for completed aspect").
+
+Return JSON only:
 {
   "errors": [
     {
       "error": "exact phrase from transcript that is wrong",
-      "correction": "what it should be",
+      "correction": "what to say instead",
       "type": "tense",
-      "explanation": "one sentence explaining the rule"
+      "explanation": "one short simple sentence"
     }
   ],
-  "strengths": ["one thing they did grammatically well"],
-  "summary": "one sentence overall grammar assessment"
+  "strengths": ["one grammar thing they did well — simple words"],
+  "summary": "one short simple sentence about their grammar overall"
 }
 
 Use type exactly one of: tense, article, preposition, agreement, word_choice, other.

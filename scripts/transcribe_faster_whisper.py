@@ -45,6 +45,10 @@ def main() -> None:
             beam_size=5,
             word_timestamps=True,
             vad_filter=True,
+            language="en",
+            initial_prompt=(
+                "Hello. I am speaking in clear English, with proper punctuation and capitalization."
+            ),
         )
         text_parts: list[str] = []
         words: list[dict[str, float | str]] = []
@@ -87,6 +91,7 @@ def main() -> None:
             duration_sec = last_end
         language = getattr(info, "language", None)
 
+        # Join segment texts; Whisper segments usually include closing punctuation.
         text = " ".join(p for p in text_parts if p).strip()
         # Cap low-confidence list for the Node maxBuffer (sorted: least confident first).
         low_conf = sorted(low_conf, key=lambda x: float(x["probability"]))[:40]

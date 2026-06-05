@@ -188,6 +188,8 @@ sudo systemctl daemon-reload && sudo systemctl restart ollama
 
 **Nginx upload limit:** Quick Analysis final step uploads several WebM clips in one POST. The `auravo-web` vhost must set `client_max_body_size 100m;` (default nginx is 1m → HTTP 413). Other vhosts on the server (`voassess`, `wordle`) already use 100m.
 
+**Quick Analysis leads:** The contact form writes to SQLite table `quick_analysis_lead` (name, email, phone — empty string if omitted, six scores). On Hetzner the DB file is on volume `auravo-data` (e.g. `auravo.sqlite` under the volume mount at `/data` in the container). Query from the host with `sqlite3` against that file, or inspect via any SQLite client.
+
 **Deploy** (from repo root on the server):
 
 ```bash

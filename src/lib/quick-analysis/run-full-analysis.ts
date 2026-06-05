@@ -5,7 +5,18 @@ import { rm } from "node:fs/promises";
 import { runAnalysis } from "@/lib/analysis/run-analysis";
 import { mergeSegmentTranscriptions } from "@/lib/assessment/merge-segment-transcriptions";
 import { getTranscriptionAdapter, TranscriptionUnavailableError } from "@/lib/transcription";
+import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
 import { prepareAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
+import {
+  flaggedWordsForPhonetics,
+  wordConfidencesFromTimings,
+} from "@/lib/quick-analysis/word-confidences";
+import { buildTranscriptSegments } from "@/lib/quick-analysis/transcript-segments";
+import { polishTranscriptForDisplay } from "@/lib/transcription/polish-transcript-display";
+import type {
+  QuickAnalysisTranscriptSegment,
+  QuickAnalysisWordConfidence,
+} from "@/app/quick-analysis/pronunciation-types";
 
 const QUICK_ANALYSIS_USER_ID = "00000000-0000-0000-0000-000000000099";
 
@@ -15,6 +26,9 @@ const CONCAT_GAP_MS = 450;
 export type QuickAnalysisFullResult = {
   scores: Awaited<ReturnType<typeof runAnalysis>>["scores"];
   transcript: string;
+  transcriptSegments: QuickAnalysisTranscriptSegment[];
+  wordConfidences: QuickAnalysisWordConfidence[];
+  phoneticMap: Record<string, string>;
   coachSummary: Awaited<ReturnType<typeof runAnalysis>>["coachSummary"];
 };
 
@@ -24,9 +38,10 @@ export type QuickAnalysisFullResult = {
  */
 export async function runQuickAnalysisFull(
   blobs: Blob[],
-  transcriptPrefix: string,
   segmentTranscripts?: string[],
   segmentServerTranscripts?: string[],
+  segmentServerMetaJson?: string[],
+  segmentLabels?: string[],
 ): Promise<QuickAnalysisFullResult> {
   if (blobs.length < 1) {
     throw new Error("At least one audio clip is required.");
@@ -38,12 +53,14 @@ export async function runQuickAnalysisFull(
     const adapter = getTranscriptionAdapter();
     const browserTexts = segmentTranscripts ?? [];
     const serverTexts = segmentServerTranscripts ?? [];
+    const serverMeta = segmentServerMetaJson ?? [];
 
     const prepared = await Promise.all(
       blobs.map((blob, i) =>
         prepareAnalysisSegment(blob, i, {
           browserTranscript: browserTexts[i],
           serverTranscript: serverTexts[i],
+          serverMetaJson: serverMeta[i],
         }),
       ),
     );
@@ -99,13 +116,28 @@ export async function runQuickAnalysisFull(
       reuseTimings: canReuseTimings,
     });
 
-    const transcript = transcriptPrefix
-      ? `${transcriptPrefix.trim()}\n\n${analysis.transcript}`.trim()
-      : analysis.transcript;
+    const labels =
+      segmentLabels?.length === segmentRows.length
+        ? segmentLabels
+        : segmentRows.map((_, i) => `Question ${i + 1}`);
+    const transcriptSegments = buildTranscriptSegments(segmentRows, labels);
+    const rawTranscript = stitchedText;
+    const wordConfidences = wordConfidencesFromTimings(analysis.voice.wordTimings ?? undefined);
+    const flagged = flaggedWordsForPhonetics(wordConfidences);
+
+    const transcript = await polishTranscriptForDisplay(rawTranscript);
+
+    // Brief pause so Groq TPM can recover after runAnalysis grammar/vocab/coach batch.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const phoneticMap = await getPhoneticPronunciations(flagged);
 
     return {
       scores: analysis.scores,
       transcript,
+      transcriptSegments,
+      wordConfidences,
+      phoneticMap,
       coachSummary: analysis.coachSummary,
     };
   } finally {

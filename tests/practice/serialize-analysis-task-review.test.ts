@@ -16,6 +16,7 @@ function minimalAnalysis(over: Partial<CanonicalAnalysis> = {}): CanonicalAnalys
     voice,
     deep: { grammarFlags: [], pronunciationTips: [] },
     grammarAnalysis: null,
+    vocabularyAnalysis: null,
     conversation: null,
     conversationCoachNotes: [],
     coachSummary: {
@@ -44,9 +45,8 @@ function minimalAnalysis(over: Partial<CanonicalAnalysis> = {}): CanonicalAnalys
         promptPreview: "Your manager…",
       },
     ],
-    ...over,
   };
-  return base;
+  return { ...base, ...over, vocabularyAnalysis: over.vocabularyAnalysis ?? null };
 }
 
 describe("serializeAnalysisForPersistence taskReview", () => {

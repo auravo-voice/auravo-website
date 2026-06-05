@@ -119,5 +119,22 @@ export const recordingReview = sqliteTable("recording_review", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/** Contact + scores from the public Quick Analysis funnel (no auth). */
+export const quickAnalysisLead = sqliteTable("quick_analysis_lead", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  /** Empty string when the visitor skips phone. */
+  phone: text("phone").notNull(),
+  pronunciation: integer("pronunciation").notNull(),
+  grammar: integer("grammar").notNull(),
+  fluency: integer("fluency").notNull(),
+  vocabulary: integer("vocabulary").notNull(),
+  fillerWords: integer("filler_words").notNull(),
+  pacing: integer("pacing").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
 export type UserProfileRow = typeof userProfile.$inferSelect;
 export type SessionScoresRow = typeof sessionScores.$inferSelect;
+export type QuickAnalysisLeadRow = typeof quickAnalysisLead.$inferSelect;

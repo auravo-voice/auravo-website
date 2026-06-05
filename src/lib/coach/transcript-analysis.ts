@@ -9,6 +9,7 @@ import {
   type GroqTranscriptInsightsPayload,
 } from "@/lib/coach/transcript-insights-schema";
 import { groqChatStructured } from "@/lib/groq/chat-json";
+import { PLAIN_LANGUAGE_COACH_RULES } from "@/lib/coach/plain-language-style";
 
 export type CoachingPattern = {
   pattern: string;
@@ -95,17 +96,17 @@ export async function callGroqForCoaching(
     derivedMetrics.topFillers.length > 0 ? derivedMetrics.topFillers.join(", ") : "none";
 
   const userMessage = `
-You are analyzing a speech transcript for a coaching app.
+You give friendly speaking tips from a voice transcript.
 The speaker's goal is: ${userGoal}
 
-Read this transcript and identify ONLY non-obvious patterns — things that would not show up in word counts or timing metrics alone.
+Find habits that word counts alone would miss.
 
-Look specifically for:
-- Hedging language clusters (e.g. "I think maybe", "sort of", "I guess")
-- Sentence structure breakdown under complexity
-- Confidence signals (trailing off, over-explaining, self-correction)
-- Vocabulary mismatch (formal/informal inconsistency)
-- Logical flow issues (jumping topics, incomplete thoughts)
+Look for:
+- Lots of "maybe", "I think", "sort of", "I guess" piled up
+- Sentences that get tangled or hard to follow
+- Trailing off, rambling, or restarting mid-sentence
+- Mixing very casual words with very formal words in the same answer
+- Jumping topics or stopping before finishing a thought
 
 Acoustic context (already computed — use to confirm, do not invent timestamps):
 - Pitch range: ${acoustic.pitch.range}Hz (below 50Hz = monotone)
@@ -121,9 +122,11 @@ Known surface metrics (do not repeat these verbatim; find what is beyond them):
 - Trailing count: ${derivedMetrics.trailingCount}
 - Restate count: ${derivedMetrics.restateCount}
 
+${PLAIN_LANGUAGE_COACH_RULES}
+
 Return JSON with keys: patterns (array), acoustic_patterns (array), biggest_issue (string), strength (string).
-Each pattern needs: pattern, evidence (short quote), impact, fix.
-Keep biggest_issue and strength to one sentence each, actionable and encouraging.
+Each pattern needs: pattern (short plain title), evidence (short quote), impact (what it does to the listener — simple words), fix (what to try — simple words).
+Keep biggest_issue and strength to one short encouraging sentence each (no jargon).
 
 Transcript:
 ${transcript.slice(0, 3000)}

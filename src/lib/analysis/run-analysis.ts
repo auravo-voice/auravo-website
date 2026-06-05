@@ -17,6 +17,10 @@ import { concatAudioToWav } from "@/lib/audio/concat";
 import { fingerprintAudioInputs } from "@/lib/audio/audio-fingerprint";
 import { scoresFromAnalysis, type VoiceAnalysis } from "@/lib/analysis/scoring";
 import { analyzeGrammarWithGroq, type GrammarAnalysisResult } from "@/lib/analysis/grammar-analysis";
+import {
+  analyzeVocabularyWithGroq,
+  type VocabularyAnalysisResult,
+} from "@/lib/analysis/vocabulary-analysis";
 import { analyzeTranscriptDeep } from "@/lib/assessment/transcript-deep-analysis";
 import type { BaselineAnalysis } from "@/lib/assessment/baseline-analysis-types";
 import { computeConversationMetrics, describeConversation, type ConversationMetrics, type ConversationTurnInput } from "@/lib/analysis/conversation";
@@ -57,6 +61,8 @@ export type CanonicalAnalysis = {
   deep: BaselineAnalysis;
   /** Groq grammar review (tense, articles, agreement, etc.) when available. */
   grammarAnalysis: GrammarAnalysisResult | null;
+  /** Groq vocabulary / word-choice review when available. */
+  vocabularyAnalysis: VocabularyAnalysisResult | null;
 
   /** Optional conversational metrics — present only for simulation + meeting-rehearsal flows. */
   conversation: ConversationMetrics | null;
@@ -251,7 +257,7 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
   };
 
   // Stage 3: derive + score (deterministic). Grammar uses regex fallback until Groq returns.
-  let voice = scoresFromAnalysis({ ...scoringInput, grammarAnalysis: null });
+  let voice = scoresFromAnalysis({ ...scoringInput, grammarAnalysis: null, vocabularyAnalysis: null });
   let deep = analyzeTranscriptDeep(transcriptText, transcription.asrWordHints, null);
 
   // Stage 4: conversation metrics (simulations + meeting rehearsals only).
@@ -322,27 +328,56 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     warning: null,
   });
 
+  const groqEnabled = Boolean(process.env.GROQ_API_KEY?.trim());
   const grammarGroqPromise: Promise<GrammarAnalysisResult | null> =
-    input.context.skipGrammarGroq || !process.env.GROQ_API_KEY?.trim()
+    input.context.skipGrammarGroq || !groqEnabled
       ? Promise.resolve(null)
       : analyzeGrammarWithGroq(transcriptText);
 
-  let grammarAnalysis: GrammarAnalysisResult | null = null;
+  const vocabularyGroqPromise: Promise<VocabularyAnalysisResult | null> = !groqEnabled
+    ? Promise.resolve(null)
+    : analyzeVocabularyWithGroq(transcriptText, voice.derivedMetrics.lexicalDiversity);
+
+  const groqResults: {
+    grammar: GrammarAnalysisResult | null;
+    vocabulary: VocabularyAnalysisResult | null;
+  } = { grammar: null, vocabulary: null };
 
   const applyGrammarResult = (result: GrammarAnalysisResult | null) => {
     if (!result) return;
-    grammarAnalysis = result;
-    voice = scoresFromAnalysis({ ...scoringInput, grammarAnalysis });
-    deep = analyzeTranscriptDeep(transcriptText, transcription.asrWordHints, grammarAnalysis);
+    groqResults.grammar = result;
+    voice = scoresFromAnalysis({
+      ...scoringInput,
+      grammarAnalysis: groqResults.grammar,
+      vocabularyAnalysis: groqResults.vocabulary,
+    });
+    deep = analyzeTranscriptDeep(transcriptText, transcription.asrWordHints, groqResults.grammar);
   };
 
-  const patchCoachSummaryGrammar = (summary: FinalCoachingSummary): FinalCoachingSummary => {
-    if (!grammarAnalysis || !summary.scoreExplanations) return summary;
-    return {
+  const applyVocabularyResult = (result: VocabularyAnalysisResult | null) => {
+    if (!result) return;
+    groqResults.vocabulary = result;
+    voice = scoresFromAnalysis({
+      ...scoringInput,
+      grammarAnalysis: groqResults.grammar,
+      vocabularyAnalysis: groqResults.vocabulary,
+    });
+  };
+
+  const patchCoachSummaryScores = (summary: FinalCoachingSummary): FinalCoachingSummary => {
+    const suggestions = groqResults.vocabulary?.suggestions ?? [];
+    let next: FinalCoachingSummary = {
       ...summary,
+      ...(suggestions.length > 0 ? { vocabularySuggestions: suggestions } : {}),
+    };
+    if (!groqResults.grammar && !groqResults.vocabulary) return next;
+    if (!summary.scoreExplanations) return next;
+    return {
+      ...next,
       scoreExplanations: {
         ...summary.scoreExplanations,
-        grammar: voice.explanations.grammar,
+        ...(groqResults.grammar ? { grammar: voice.explanations.grammar } : {}),
+        ...(groqResults.vocabulary ? { vocabulary: voice.explanations.vocabulary } : {}),
       },
     };
   };
@@ -350,15 +385,22 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
   // Stage 6: Groq grammar analysis runs in parallel with coaching summary (both need the transcript).
   if (wantsTaskReview && wantsCoachSummary && input.context.exerciseContext) {
     const exercise = input.context.exerciseContext;
-    const [grammarSettled, taskReviewSettled, coachSettled] = await Promise.allSettled([
-      grammarGroqPromise,
-      generateExerciseTaskReview({ exercise, transcript: transcriptText, voice }),
-      generateFinalCoachingSummary({ ...coachInput, exerciseContext: exercise }),
-    ]);
+    const [grammarSettled, vocabularySettled, taskReviewSettled, coachSettled] =
+      await Promise.allSettled([
+        grammarGroqPromise,
+        vocabularyGroqPromise,
+        generateExerciseTaskReview({ exercise, transcript: transcriptText, voice }),
+        generateFinalCoachingSummary({ ...coachInput, exerciseContext: exercise }),
+      ]);
     if (grammarSettled.status === "fulfilled") {
       applyGrammarResult(grammarSettled.value);
     } else {
       console.error("[runAnalysis] Groq grammar analysis failed:", grammarSettled.reason);
+    }
+    if (vocabularySettled.status === "fulfilled") {
+      applyVocabularyResult(vocabularySettled.value);
+    } else {
+      console.error("[runAnalysis] Groq vocabulary analysis failed:", vocabularySettled.reason);
     }
     if (taskReviewSettled.status === "fulfilled") {
       taskReview = taskReviewSettled.value;
@@ -366,13 +408,13 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
       console.error("[runAnalysis] exercise task review failed:", taskReviewSettled.reason);
     }
     if (coachSettled.status === "fulfilled") {
-      coachSummary = patchCoachSummaryGrammar(coachSettled.value);
+      coachSummary = patchCoachSummaryScores(coachSettled.value);
     } else {
       console.error("[runAnalysis] coaching summary failed:", coachSettled.reason);
       coachSummary = emptyCoachSummary();
     }
   } else {
-    const groqParallel: Promise<unknown>[] = [grammarGroqPromise];
+    const groqParallel: Promise<unknown>[] = [grammarGroqPromise, vocabularyGroqPromise];
 
     if (wantsTaskReview && input.context.exerciseContext) {
       groqParallel.push(
@@ -396,13 +438,19 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     const settled = await Promise.allSettled(groqParallel);
 
     const grammarSettled = settled[0] as PromiseSettledResult<GrammarAnalysisResult | null>;
+    const vocabularySettled = settled[1] as PromiseSettledResult<VocabularyAnalysisResult | null>;
     if (grammarSettled.status === "fulfilled") {
       applyGrammarResult(grammarSettled.value);
     } else {
       console.error("[runAnalysis] Groq grammar analysis failed:", grammarSettled.reason);
     }
+    if (vocabularySettled.status === "fulfilled") {
+      applyVocabularyResult(vocabularySettled.value);
+    } else {
+      console.error("[runAnalysis] Groq vocabulary analysis failed:", vocabularySettled.reason);
+    }
 
-    let idx = 1;
+    let idx = 2;
     if (wantsTaskReview && input.context.exerciseContext) {
       const taskReviewSettled = settled[idx] as PromiseSettledResult<ExerciseTaskReviewResult>;
       idx += 1;
@@ -416,7 +464,7 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     if (wantsCoachSummary) {
       const coachSettled = settled[idx] as PromiseSettledResult<FinalCoachingSummary>;
       if (coachSettled.status === "fulfilled") {
-        coachSummary = patchCoachSummaryGrammar(coachSettled.value);
+        coachSummary = patchCoachSummaryScores(coachSettled.value);
       } else {
         console.error("[runAnalysis] coaching summary failed:", coachSettled.reason);
         coachSummary = emptyCoachSummary();
@@ -424,6 +472,14 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
     } else {
       coachSummary = emptyCoachSummary();
     }
+  }
+
+  const vocabSuggestions = groqResults.vocabulary?.suggestions ?? [];
+  if (vocabSuggestions.length > 0 && !coachSummary.vocabularySuggestions?.length) {
+    coachSummary = {
+      ...coachSummary,
+      vocabularySuggestions: vocabSuggestions,
+    };
   }
 
   try {
@@ -436,7 +492,8 @@ export async function runAnalysis(input: RunAnalysisInput): Promise<CanonicalAna
       scores: voice.scores,
       voice,
       deep,
-      grammarAnalysis,
+      grammarAnalysis: groqResults.grammar,
+      vocabularyAnalysis: groqResults.vocabulary,
       conversation,
       conversationCoachNotes,
       coachSummary,

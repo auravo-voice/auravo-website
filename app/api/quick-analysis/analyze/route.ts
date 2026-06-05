@@ -1,15 +1,45 @@
 import { NextResponse } from "next/server";
 
+import type { QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
 import { runDeterministicQuickAnalysis } from "@/lib/quick-analysis/deterministic-analysis";
+import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
 import { transcribeQuickAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
 import { runQuickAnalysisFull } from "@/lib/quick-analysis/run-full-analysis";
 import { scoreQuickAnalysisFromTranscript } from "@/lib/quick-analysis/score-from-transcript";
+import { flaggedWordsForPhonetics } from "@/lib/quick-analysis/word-confidences";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function parseWordConfidences(raw: unknown): QuickAnalysisWordConfidence[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (w): w is QuickAnalysisWordConfidence =>
+      w != null &&
+      typeof w === "object" &&
+      typeof (w as QuickAnalysisWordConfidence).word === "string" &&
+      typeof (w as QuickAnalysisWordConfidence).confidence === "number",
+  );
+}
+
 export async function POST(req: Request) {
+  const contentType = req.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    let json: { mode?: string; wordConfidences?: unknown };
+    try {
+      json = (await req.json()) as { mode?: string; wordConfidences?: unknown };
+    } catch {
+      return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    }
+    if (json.mode === "phonetics") {
+      const wordConfidences = parseWordConfidences(json.wordConfidences);
+      const phoneticMap = await getPhoneticPronunciations(flaggedWordsForPhonetics(wordConfidences));
+      return NextResponse.json({ phoneticMap });
+    }
+    return NextResponse.json({ error: "Invalid JSON mode. Use phonetics." }, { status: 400 });
+  }
+
   let form: FormData;
   try {
     form = await req.formData();
@@ -67,6 +97,8 @@ export async function POST(req: Request) {
         ms: Date.now() - startedAt,
         whispered: result.whispered,
         chars: result.transcript.length,
+        wordCount: result.wordConfidences.length,
+        hasMeta: Boolean(result.transcriptMetaJson),
       });
       return NextResponse.json(result);
     } catch (e) {
@@ -89,14 +121,17 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "At least one audio clip is required." }, { status: 400 });
     }
 
-    const prefixRaw = form.get("transcriptPrefix");
-    const transcriptPrefix = typeof prefixRaw === "string" ? prefixRaw.trim() : "";
-
     const segmentTranscripts = form
       .getAll("segmentTranscript")
       .map((entry) => (typeof entry === "string" ? entry.trim() : ""));
     const segmentServerTranscripts = form
       .getAll("segmentServerTranscript")
+      .map((entry) => (typeof entry === "string" ? entry.trim() : ""));
+    const segmentServerMetaJson = form
+      .getAll("segmentServerMetaJson")
+      .map((entry) => (typeof entry === "string" ? entry : ""));
+    const segmentLabels = form
+      .getAll("segmentLabel")
       .map((entry) => (typeof entry === "string" ? entry.trim() : ""));
 
     const startedAt = Date.now();
@@ -104,26 +139,34 @@ export async function POST(req: Request) {
       clips: blobs.length,
       browserSegments: segmentTranscripts.filter((t) => t.length > 0).length,
       prefetchedSegments: segmentServerTranscripts.filter((t) => t.length > 0).length,
+      prefetchedMeta: segmentServerMetaJson.filter((m) => m.length > 0).length,
     });
     try {
       const result = await runQuickAnalysisFull(
         blobs,
-        transcriptPrefix,
         segmentTranscripts,
         segmentServerTranscripts,
+        segmentServerMetaJson,
+        segmentLabels,
       );
       console.info("[quick-analysis/analyze] full mode ok", {
         ms: Date.now() - startedAt,
         transcriptChars: result.transcript.length,
+        segmentCount: result.transcriptSegments.length,
+        wordCount: result.wordConfidences.length,
       });
       return NextResponse.json({
         scores: result.scores,
         transcript: result.transcript,
+        transcriptSegments: result.transcriptSegments,
+        wordConfidences: result.wordConfidences,
+        phoneticMap: result.phoneticMap,
         coachSummary: {
           biggestIssue: result.coachSummary.biggestIssue,
           strength: result.coachSummary.strength,
           patterns: result.coachSummary.patterns,
           acousticPatterns: result.coachSummary.acousticPatterns,
+          vocabularySuggestions: result.coachSummary.vocabularySuggestions ?? [],
           summary: result.coachSummary.summary,
           strengths: result.coachSummary.strengths,
           improvementAreas: result.coachSummary.improvementAreas,
@@ -148,7 +191,7 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json(
-    { error: "Invalid mode. Use transcript, deterministic, segment, or full." },
+    { error: "Invalid mode. Use transcript, deterministic, segment, full, or JSON phonetics." },
     { status: 400 },
   );
 }

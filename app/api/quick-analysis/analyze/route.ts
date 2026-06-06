@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import type { QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
 import { runDeterministicQuickAnalysis } from "@/lib/quick-analysis/deterministic-analysis";
 import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
 import { transcribeQuickAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
@@ -8,6 +9,10 @@ import { runQuickAnalysisFull } from "@/lib/quick-analysis/run-full-analysis";
 import { scoreQuickAnalysisFromTranscript } from "@/lib/quick-analysis/score-from-transcript";
 import { flaggedWordsForPhonetics } from "@/lib/quick-analysis/word-confidences";
 import { TranscriptionUnavailableError } from "@/lib/transcription";
+import {
+  QuickAnalysisBusyError,
+  withQuickAnalysisConcurrency,
+} from "@/lib/quick-analysis/concurrency";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +28,20 @@ function parseWordConfidences(raw: unknown): QuickAnalysisWordConfidence[] {
   );
 }
 
+function busyResponse() {
+  return NextResponse.json(
+    {
+      error: new QuickAnalysisBusyError().message,
+      code: "SERVER_BUSY",
+    },
+    { status: 503 },
+  );
+}
+
 export async function POST(req: Request) {
+  const auth = await requireApiUserId();
+  if (isAuthError(auth)) return auth;
+
   const contentType = req.headers.get("content-type") ?? "";
   if (contentType.includes("application/json")) {
     let json: { mode?: string; wordConfidences?: unknown };
@@ -33,9 +51,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
     }
     if (json.mode === "phonetics") {
-      const wordConfidences = parseWordConfidences(json.wordConfidences);
-      const phoneticMap = await getPhoneticPronunciations(flaggedWordsForPhonetics(wordConfidences));
-      return NextResponse.json({ phoneticMap });
+      try {
+        const wordConfidences = parseWordConfidences(json.wordConfidences);
+        const phoneticMap = await withQuickAnalysisConcurrency(() =>
+          getPhoneticPronunciations(flaggedWordsForPhonetics(wordConfidences)),
+        );
+        return NextResponse.json({ phoneticMap });
+      } catch (e) {
+        if (e instanceof QuickAnalysisBusyError) return busyResponse();
+        throw e;
+      }
     }
     return NextResponse.json({ error: "Invalid JSON mode. Use phonetics." }, { status: 400 });
   }
@@ -54,9 +79,12 @@ export async function POST(req: Request) {
     const transcriptRaw = form.get("transcript");
     const transcript = typeof transcriptRaw === "string" ? transcriptRaw.trim() : "";
     try {
-      const result = scoreQuickAnalysisFromTranscript(transcript);
+      const result = await withQuickAnalysisConcurrency(() =>
+        Promise.resolve(scoreQuickAnalysisFromTranscript(transcript)),
+      );
       return NextResponse.json(result);
     } catch (e) {
+      if (e instanceof QuickAnalysisBusyError) return busyResponse();
       const msg = e instanceof Error ? e.message : "Scoring failed.";
       return NextResponse.json({ error: msg }, { status: 422 });
     }
@@ -68,9 +96,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Audio is required." }, { status: 400 });
     }
     try {
-      const result = await runDeterministicQuickAnalysis(audio);
+      const result = await withQuickAnalysisConcurrency(() => runDeterministicQuickAnalysis(audio));
       return NextResponse.json(result);
     } catch (e) {
+      if (e instanceof QuickAnalysisBusyError) return busyResponse();
       if (e instanceof TranscriptionUnavailableError) {
         console.error("[quick-analysis/analyze] deterministic transcription failed:", e.cause ?? e.message);
         return NextResponse.json(
@@ -92,7 +121,9 @@ export async function POST(req: Request) {
     const browserTranscript = typeof browserRaw === "string" ? browserRaw.trim() : "";
     const startedAt = Date.now();
     try {
-      const result = await transcribeQuickAnalysisSegment(audio, browserTranscript);
+      const result = await withQuickAnalysisConcurrency(() =>
+        transcribeQuickAnalysisSegment(audio, browserTranscript),
+      );
       console.info("[quick-analysis/analyze] segment ok", {
         ms: Date.now() - startedAt,
         whispered: result.whispered,
@@ -102,6 +133,7 @@ export async function POST(req: Request) {
       });
       return NextResponse.json(result);
     } catch (e) {
+      if (e instanceof QuickAnalysisBusyError) return busyResponse();
       if (e instanceof TranscriptionUnavailableError) {
         return NextResponse.json(
           { error: e.message || "Speech recognition is unavailable on the server." },
@@ -142,12 +174,14 @@ export async function POST(req: Request) {
       prefetchedMeta: segmentServerMetaJson.filter((m) => m.length > 0).length,
     });
     try {
-      const result = await runQuickAnalysisFull(
-        blobs,
-        segmentTranscripts,
-        segmentServerTranscripts,
-        segmentServerMetaJson,
-        segmentLabels,
+      const result = await withQuickAnalysisConcurrency(() =>
+        runQuickAnalysisFull(
+          blobs,
+          segmentTranscripts,
+          segmentServerTranscripts,
+          segmentServerMetaJson,
+          segmentLabels,
+        ),
       );
       console.info("[quick-analysis/analyze] full mode ok", {
         ms: Date.now() - startedAt,
@@ -177,6 +211,7 @@ export async function POST(req: Request) {
         ms: Date.now() - startedAt,
         error: e,
       });
+      if (e instanceof QuickAnalysisBusyError) return busyResponse();
       if (e instanceof TranscriptionUnavailableError) {
         console.error("[quick-analysis/analyze] full transcription failed:", e.cause ?? e.message);
         return NextResponse.json(

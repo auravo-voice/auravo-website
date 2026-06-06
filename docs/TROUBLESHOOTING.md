@@ -161,21 +161,23 @@ Register Google OAuth redirect URIs for every app host you use, e.g. `https://ww
 
 ## Voice / coach / transcription
 
-### Coach unavailable / timeout
+### Coach unavailable / timeout / poor quality
 
-**Symptom:** Yellow/red banner; fallback copy.
+**Symptom:** Fallback coach copy or long waits.
 
 **Checks:**
 
 ```bash
-curl http://127.0.0.1:11434/api/tags   # Ollama up?
+# Groq (primary coach provider)
+podman exec auravo-web printenv GROQ_API_KEY | wc -c   # should be > 0
+podman logs auravo-web --tail 50 | rg -i groq
 ```
 
 **Fix:**
 
-- Start Ollama; `ollama pull qwen2.5:3b`
-- Increase `AURAVO_COACH_TIMEOUT_MS=180000` or `240000`
-- From container: `OLLAMA_BASE_URL=http://host.containers.internal:11434`
+- Set valid `GROQ_API_KEY` in `.env.production.local`
+- Groq 429: retries are automatic; reduce parallel calls or upgrade Groq tier
+- Legacy Ollama (optional): `curl http://127.0.0.1:11434/api/tags`, set `OLLAMA_BASE_URL`
 
 ---
 
@@ -207,17 +209,89 @@ Set `TRANSCRIPTION_PROVIDER=faster-whisper` and `FASTER_WHISPER_PYTHON` to venv 
 
 ## Container-specific
 
-### `better-sqlite3` / `getDb` errors
+### `ENOENT: mkdir '/var/task/data'` or SQLite path errors
 
-**Cause:** Old code or image.
+**Symptom:** API crashes trying to create `/var/task/data` (Vercel) or missing DB dir.
 
-**Fix:** Rebuild from current `main` — SQLite removed.
+**Cause:** `AURAVO_STORAGE=sqlite` on serverless without a writable data directory.
+
+**Fix:** On Hetzner, set `AURAVO_DB_DIR=/data` and mount volume `auravo-data:/data`. On Vercel, use `AURAVO_STORAGE=pocketbase` or do not run SQLite-backed routes on serverless.
 
 ---
 
 ### Cannot reach PocketBase from container
 
-**Fix:** Use public URL `https://pb.auravo.ai`, not `127.0.0.1:8080`, unless PocketBase is on the same Docker network with a shared alias.
+**Symptom:** Dashboard/login works on host but fails inside `auravo-web` container.
+
+**Fix:** Set `POCKETBASE_URL=http://auth:8080` on Podman network `voca`. Avoid `https://pb.auravo.ai` from inside the container if host `/etc/hosts` maps it to `127.0.0.1`.
+
+---
+
+## Quick Analysis
+
+### HTTP 401 on `/api/quick-analysis/*`
+
+**Symptom:** “Sign in required.”
+
+**Fix:** Log in at `/login`. Quick Analysis is no longer a public demo.
+
+---
+
+### HTTP 402 / paywall on 4th assessment
+
+**Expected:** Free tier is 3 assessments per day. Subscribe via Razorpay (₹500/month or ₹5,000/year).
+
+**Fix:** Ensure `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET` are set in `.env.production.local` and passed by `deploy-hetzner.sh`. Check `user_subscription` table after successful payment.
+
+---
+
+### “Our servers are busy right now” (HTTP 503, `SERVER_BUSY`)
+
+**Symptom:** Analysis fails immediately under load.
+
+**Cause:** More than **5 parallel** analysis jobs (Whisper/Groq) on the single Node process.
+
+**Fix:** Wait and retry. Scale horizontally would require a shared queue (not implemented — in-memory limiter today).
+
+---
+
+### HTTP 413 on full Quick Analysis
+
+**Symptom:** Final analysis step fails; nginx error log shows client intended to send too large body.
+
+**Fix:** Set `client_max_body_size 100m;` on the `auravo-web` nginx vhost.
+
+---
+
+### Quick Analysis very slow (30–60s+)
+
+**Checks:**
+
+```bash
+podman logs auravo-web --tail 100 | rg -i "segment ok|full mode|rate limited|groq"
+```
+
+**Common causes:**
+
+| Log pattern | Cause |
+|-------------|--------|
+| `whisperPasses: 0` missing | Segment prefetch failed — duplicate Whisper on full path |
+| `[groq] rate limited` | Groq 429 retries adding 5–30s |
+| `segment ok { ms: 20000+ }` | Long clips or CPU load on Whisper `small` |
+
+---
+
+### Groq JSON schema / polish failures
+
+**Symptom:** `[polish-transcript-display] Groq failed, using raw transcript` in logs.
+
+**Impact:** Analysis still completes; punctuation may be less polished.
+
+---
+
+### Razorpay checkout does not open
+
+**Fix:** Confirm keys in production env, rebuild/restart container after adding them. Browser needs network access to `checkout.razorpay.com`.
 
 ---
 

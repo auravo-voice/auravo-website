@@ -91,4 +91,21 @@ CREATE TABLE IF NOT EXISTS quick_analysis_lead (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_quick_analysis_lead_created_at ON quick_analysis_lead(created_at DESC);
+CREATE TABLE IF NOT EXISTS quick_analysis_run (
+  id TEXT PRIMARY KEY NOT NULL,
+  user_id TEXT NOT NULL REFERENCES user_profile(id),
+  day_key TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quick_analysis_run_user_day
+  ON quick_analysis_run(user_id, day_key);
+CREATE TABLE IF NOT EXISTS user_subscription (
+  user_id TEXT PRIMARY KEY NOT NULL REFERENCES user_profile(id),
+  plan_id TEXT NOT NULL,
+  razorpay_order_id TEXT,
+  razorpay_payment_id TEXT,
+  expires_at INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 `;

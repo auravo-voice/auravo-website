@@ -55,6 +55,8 @@ podman run -d --replace --name "$CONTAINER" \
   -e "GROQ_API_KEY=$GROQ_API_KEY" \
   -e "GROQ_MODEL=$GROQ_MODEL" \
   -e "DEEPGRAM_API_KEY=${DEEPGRAM_API_KEY:-}" \
+  -e "RAZORPAY_KEY_ID=${RAZORPAY_KEY_ID:-}" \
+  -e "RAZORPAY_KEY_SECRET=${RAZORPAY_KEY_SECRET:-}" \
   -e FASTER_WHISPER_MODEL=small \
   -e TRANSCRIPTION_PROVIDER=faster-whisper \
   -e FASTER_WHISPER_PYTHON=/app/.venv-transcription/bin/python \

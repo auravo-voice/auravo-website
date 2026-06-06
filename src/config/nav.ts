@@ -7,12 +7,14 @@ import {
   LineChart,
   MessageCircle,
   Mic2,
+  Radar,
   Settings2,
   Sparkles,
 } from "lucide-react";
 
 export const APP_NAV = [
   { href: "/dashboard", label: "Home", icon: Home },
+  { href: "/quick-analysis", label: "Quick Analysis", icon: Radar },
   { href: "/assessment", label: "Initial assessment", icon: ClipboardCheck },
   { href: "/learning-path", label: "Learning path", icon: Sparkles },
   { href: "/wordle", label: "Auravord", icon: Keyboard },

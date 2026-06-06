@@ -1,9 +1,9 @@
-/** Spoken copy for the demo — browser TTS reads these; UI shows captions, not duplicate headings. */
+/** Spoken copy for Quick Analysis — browser TTS reads these; UI shows captions, not duplicate headings. */
 
 export const WELCOME_LINES = [
-  "Welcome to Auravo.",
-  "We'd like to spend about five minutes with you to understand your strengths on your English journey.",
-  "You'll answer a few short questions out loud — no account needed.",
+  "Welcome to Quick Analysis.",
+  "We'll spend about five minutes together to understand your strengths on your English journey.",
+  "You'll answer a few short questions out loud with Voca.",
   "When you're ready, tap the microphone and speak naturally.",
 ] as const;
 
@@ -20,11 +20,11 @@ export const QUESTIONS = {
     "Great! Can you name five things that are around you right now? For example, a desk, a window, a phone.",
   q5_visual: "Almost done! Please describe what you see in this image in a few sentences.",
   results:
-    "Here's your full English profile snapshot. You're doing well in some areas, and there's exciting room to grow in others. We'd love to create a personalised lesson plan for you.",
+    "Here's your full English profile snapshot. You're doing well in some areas, and there's exciting room to grow in others. Head to your dashboard anytime to keep practicing with Auravo.",
   thank_you_no: "Thank you so much for your time!",
-  thank_you_submit: "Thank you! We'll be in touch soon with your personalised plan.",
+  thank_you_submit: "Thank you! Your snapshot is saved — keep practicing from your Auravo dashboard.",
   thank_you_page:
-    "Thank you! We'll be in touch soon with a personalised plan. You can also sign in to Auravo for the full coaching experience.",
+    "Thank you for completing Quick Analysis. Your snapshot is ready — visit your dashboard to keep building with daily practice and coaching.",
 } as const;
 
 /** Ordered question keys sent to full analysis (Q1–Q5 audio + transcript segments). */

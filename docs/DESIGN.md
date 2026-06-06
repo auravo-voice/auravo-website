@@ -4,6 +4,7 @@
 
 `auravo-web` is the production web client for Auravo voice coaching. It supports:
 
+- **Quick Analysis** — 5-question voice snapshot with Voca (signed-in; daily limits + Razorpay),
 - onboarding assessment (4-segment baseline),
 - daily practice with task-level review,
 - simulation conversations,
@@ -40,6 +41,8 @@ flowchart LR
   APIRoutes --> Whisper[faster-whisper + ffmpeg + Python]
   APIRoutes --> Acoustic[Parselmouth + librosa + VAD]
   APIRoutes --> Groq[Groq chat completions API]
+  APIRoutes --> Deepgram[Deepgram Aura TTS]
+  APIRoutes --> Razorpay[Razorpay payments]
 ```
 
 ### Hostname roles
@@ -62,8 +65,10 @@ flowchart LR
 | Validation | Zod |
 | Speech transcription | `faster-whisper` (Python subprocess), `ffmpeg` |
 | Acoustic analysis | `praat-parselmouth`, `librosa`, VAD |
-| Coaching LLM | Groq OpenAI-compatible chat completions |
-| Data backend | Storage adapter (`sqlite` or `pocketbase`) |
+| Coaching LLM | Groq OpenAI-compatible chat completions (`GROQ_API_KEY`, `llama-3.1-8b-instant`) |
+| Quick Analysis TTS | Deepgram Aura (`DEEPGRAM_API_KEY`) or browser speech synthesis |
+| Payments | Razorpay orders (Quick Analysis monthly/yearly plans) |
+| Data backend | Storage adapter (`sqlite` default on Hetzner, or `pocketbase`) |
 | Auth | PocketBase auth (`pb_auth`) |
 | Tests | Vitest |
 
@@ -74,6 +79,7 @@ flowchart LR
 ```text
 app/
   (app)/
+    quick-analysis/            # Signed-in Quick Analysis (AppChrome sidebar)
     assessment/
     dashboard/
     practice/
@@ -81,7 +87,11 @@ app/
     meeting-prep/
     progress/
     wordle/
-  api/                         # Route handlers (auth, analysis, practice, simulations)
+  quick-analysis/              # Client flow components + hooks (shared)
+  api/
+    quick-analysis/            # analyze, start, usage, tts, submit
+    billing/razorpay/          # create-order, verify
+    auth/ assessment/ practice/ simulations/ meeting-prep/ …
 src/
   lib/analysis/                # Canonical runAnalysis orchestration
   lib/coach/                   # Coach generation + deterministic fallbacks
@@ -109,17 +119,23 @@ Containerfile                  # App image build including Python speech toolcha
 - `POCKETBASE_URL`  
   Server-side PocketBase URL for route handlers.
 - `GROQ_API_KEY`, `GROQ_MODEL`  
-  Coaching provider and model (`llama-3.1-8b-instant` default).
+  Coaching provider and model (`llama-3.1-8b-instant` default). Required on Hetzner deploy.
+- `DEEPGRAM_API_KEY`  
+  Quick Analysis server TTS (Aura). Optional — browser TTS fallback.
+- `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`  
+  Quick Analysis subscription checkout. Optional — paywall shows error if unset.
 - `AURAVO_COACH_TIMEOUT_MS`  
-  Timeout budget used by Groq coach paths.
+  Timeout budget used by coach paths (legacy Ollama paths; Groq uses its own client timeouts).
 - `TRANSCRIPTION_PROVIDER`, `FASTER_WHISPER_MODEL`, `FASTER_WHISPER_PYTHON`  
   Speech stack selection and execution path.
+- `AURAVO_DB_DIR`  
+  SQLite directory when `AURAVO_STORAGE=sqlite` (e.g. `/data` in container).
 
 ### Storage mode strategy
 
-- **SQLite mode**: local persistence for app session artifacts (common on Hetzner container deployment).
-- **PocketBase mode**: app data read/write via PocketBase query implementation.
-- Auth can still be PocketBase while data storage backend differs.
+- **SQLite mode (Hetzner default):** `auravo.sqlite` on persistent volume (`auravo-data:/data`). Stores practice sessions, scores, Quick Analysis daily runs, Razorpay subscription rows, and legacy lead table.
+- **PocketBase mode:** app data read/write via PocketBase query implementations in `src/db/queries/pocketbase/`.
+- **Auth is always PocketBase** when `NEXT_PUBLIC_POCKETBASE_URL` is set, regardless of `AURAVO_STORAGE`.
 
 ---
 
@@ -129,10 +145,12 @@ Containerfile                  # App image build including Python speech toolcha
 - Supported flows:
   - email/password sign-in and sign-up,
   - Google OAuth2 redirect flow.
-- Protected API routes and app surfaces resolve user identity via server auth helpers.
+- Protected API routes resolve user identity via `requireApiUserId()` / `getAuthenticatedUserId()`.
+- Quick Analysis page redirects unauthenticated users to `/login?redirect=/quick-analysis`.
+- Edge **`proxy.ts`** (Next 16) mints anonymous `auravo_user_id` cookies only in SQLite dev mode; production Hetzner relies on `pb_auth`.
 - Domain-aware cookie settings are used for production hosts.
 
-No sensitive inference calls are executed client-side; Groq calls are server-only.
+No sensitive inference or payment calls run client-side; Groq, Whisper, and Razorpay order creation are server-only.
 
 ---
 
@@ -239,8 +257,11 @@ Primary entities (logical model):
 - **Onboarding baseline link**: user’s selected baseline session.
 - **Baseline segments**: draft/final segment-level assessment rows.
 - **Simulation turns**: turn-level simulation artifacts.
+- **Quick Analysis runs** (`quick_analysis_run`): per-user daily assessment count (`user_id`, `day_key`, `created_at`).
+- **User subscriptions** (`user_subscription`): Razorpay entitlement (`plan_id`, `expires_at`, payment ids).
+- **Quick Analysis leads** (`quick_analysis_lead`): legacy public demo leads (optional; submit API now requires auth).
 
-Key design choice: route handlers consume query façade modules in `src/db/queries/*`, so storage backend can switch with minimal feature-level changes.
+Key design choice: route handlers consume query façade modules in `src/db/queries/*`, so storage backend can switch with minimal feature-level changes. Quick Analysis usage tables are SQLite-only today.
 
 ---
 
@@ -254,12 +275,60 @@ Representative route groups:
 - `app/api/simulations/*` — start/turn/finalize and custom scenario.
 - `app/api/meeting-prep/*` — plan/start/turn/finalize.
 - `app/api/coach/scenarios` and related serving endpoints.
+- `app/api/quick-analysis/*` — analyze (segment/full/transcript/phonetics), `start` (reserve daily slot), `usage`, `tts`, `submit`.
+- `app/api/billing/razorpay/*` — `create-order`, `verify` (signature check + subscription upsert).
 
 Route handlers are thin orchestrators: validate input, enforce auth, call core services, return typed JSON.
 
 ---
 
-## 13) Deployment architecture (Hetzner reference)
+## 13) Quick Analysis architecture
+
+Quick Analysis is a **signed-in** feature at `/quick-analysis` (sidebar nav). It is **not** a public demo.
+
+### Flow
+
+1. **Welcome** — Voca intro (browser or Deepgram TTS).
+2. **Q1–Q5** — voice questions (city, duration, city description, five objects, visual scene).
+3. **Midpoint (after Q3)** — radar snapshot; learner can continue to Q4–Q5 or stop.
+4. **Results** — six-dimension radar, pronunciation-highlighted transcript, coach insight cards.
+
+### Client pipeline
+
+- Records WebM clips per question; browser Speech Recognition provides live captions.
+- **Prefetch:** while the learner hears the next question, client POSTs `mode=segment` to Whisper each prior clip.
+- **Midpoint:** `mode=transcript` scores from Q3 text (fast).
+- **Full path:** `mode=full` concatenates five clips; server reuses prefetched transcripts (`whisperPasses: 0` when prefetch succeeded).
+
+### Limits and billing
+
+| Rule | Value | Enforcement |
+|------|-------|-------------|
+| Free assessments / day | 3 | `POST /api/quick-analysis/start` records `quick_analysis_run` |
+| 4th+ same day | Paywall | HTTP 402 `PAYWALL_REQUIRED` unless `user_subscription` active |
+| Monthly plan | ₹500 | Razorpay order → 30 days entitlement |
+| Yearly plan | ₹5,000 | Razorpay order → 365 days entitlement |
+| Session recording budget | 5 minutes total | Client timer across all questions |
+| Parallel server analyses | 5 max | In-process semaphore; HTTP 503 `SERVER_BUSY` |
+
+### Server libs
+
+- `src/lib/quick-analysis/run-full-analysis.ts` — full scoring pipeline
+- `src/lib/quick-analysis/prepare-analysis-segment.ts` — per-clip Whisper
+- `src/lib/quick-analysis/phonetic-analysis.ts` — Groq phonetic guides for flagged words
+- `src/lib/quick-analysis/concurrency.ts` — global slot limiter
+- `src/lib/billing/quick-analysis-entitlement.ts` — daily limit checks
+
+### UI components
+
+- `app/quick-analysis/quick-analysis-flow.tsx` — main client orchestration
+- `app/quick-analysis/components/PronunciationTranscript.tsx` — word-level highlighting
+- `app/quick-analysis/components/QuickAnalysisPaywall.tsx` — Razorpay checkout
+- `src/components/skill-radar.tsx` — radar chart with percentage badges
+
+---
+
+## 14) Deployment architecture (Hetzner reference)
 
 ### Runtime pattern
 
@@ -280,7 +349,7 @@ This significantly reduces rebuild time on ARM64 hosts.
 
 ---
 
-## 14) Reliability, degradation, and performance
+## 15) Reliability, degradation, and performance
 
 ### Reliability patterns
 
@@ -298,23 +367,31 @@ This significantly reduces rebuild time on ARM64 hosts.
 
 ---
 
-## 15) Security and compliance notes
+### Quick Analysis performance notes
+
+- Segment Whisper: ~7–22s per clip on Hetzner `small` model.
+- Full analysis with prefetch: ~10–35s Groq tail (grammar + vocab + coach + polish + phonetics).
+- Groq 429 rate limits add retry backoff (`src/lib/groq/chat-json.ts`); parallel Groq calls are partially serialized on the full path to reduce TPM storms.
+
+---
+
+## 16) Security and compliance notes
 
 - `NEXT_PUBLIC_*` variables are non-secret only.
-- `GROQ_API_KEY` must remain server-side; rotate immediately if exposed.
+- `GROQ_API_KEY`, `RAZORPAY_KEY_SECRET`, `DEEPGRAM_API_KEY` must remain server-side; rotate immediately if exposed.
 - OAuth redirect URIs and PocketBase allowed origins must match active hosts.
 - User-scoped data access is enforced through auth-aware query/routing layers.
 
 ---
 
-## 16) Current naming/UI conventions
+## 17) Current naming/UI conventions
 
 - Vocabulary game route remains `/wordle` for compatibility.
 - User-facing brand label is **Auravord** in navigation and game UI.
 
 ---
 
-## 17) Open risks and future evolution
+## 18) Open risks and future evolution
 
 - Large-model dependency on external Groq availability can still increase latency under provider/network stress.
 - Long-running audio analysis remains CPU-heavy; horizontal scaling requires queue/worker strategy if throughput grows.
@@ -322,7 +399,7 @@ This significantly reduces rebuild time on ARM64 hosts.
 
 ---
 
-## 18) Usage guide
+## 19) Usage guide
 
 This section is a practical runbook for engineers who need to run, verify, and deploy the system quickly.
 
@@ -335,7 +412,8 @@ This section is a practical runbook for engineers who need to run, verify, and d
 3. Set required env vars in `.env.local`:
    - `NEXT_PUBLIC_POCKETBASE_URL`
    - `GROQ_API_KEY`
-   - optional: `GROQ_MODEL`, `AURAVO_STORAGE`, transcription vars.
+   - `GROQ_API_KEY` (required for coaching / Quick Analysis scoring)
+   - optional: `DEEPGRAM_API_KEY`, `RAZORPAY_KEY_*`, `GROQ_MODEL`, `AURAVO_STORAGE`, transcription vars.
 4. Start the app:
    - `npm run dev`
 5. Open:
@@ -346,10 +424,20 @@ Recommended quick validation:
 - Login flow works (`/login` -> `/dashboard`).
 - Assessment can start and save segment drafts.
 - `/wordle` renders with Auravord label.
+- `/quick-analysis` requires login and shows remaining free assessments.
 
 ### B) Core feature usage (end-to-end)
 
-#### 1. Assessment baseline
+#### 1. Quick Analysis
+
+1. Sign in → sidebar **Quick Analysis**.
+2. Tap **Start speaking** (reserves one daily slot via `/api/quick-analysis/start`).
+3. Answer Q1–Q5 within the **5-minute total recording** budget.
+4. At midpoint, optionally continue for full analysis.
+5. Review radar scores, transcript highlights, and coach cards.
+6. After 3 free runs per day, Razorpay paywall offers ₹500/month or ₹5,000/year.
+
+#### 2. Assessment baseline
 
 1. Navigate to `/assessment`.
 2. Record all four segments.
@@ -361,7 +449,7 @@ Recommended quick validation:
 
 If transcription fails, validate degraded fallback behavior and warning copy.
 
-#### 2. Daily practice
+#### 3. Daily practice
 
 1. Navigate to `/practice/today`.
 2. Complete an exercise recording.
@@ -370,13 +458,13 @@ If transcription fails, validate degraded fallback behavior and warning copy.
    - coaching summary appears,
    - persistence reflects latest session.
 
-#### 3. Simulations
+#### 4. Simulations
 
 1. Start a scenario from `/simulations`.
 2. Send at least 2 turns.
 3. Verify assistant turn generation and finalize behavior.
 
-#### 4. Meeting prep
+#### 5. Meeting prep
 
 1. Create a plan from `/meeting-prep`.
 2. Start rehearsal.
@@ -408,8 +496,9 @@ If transcription fails, validate degraded fallback behavior and warning copy.
 Server-side canonical flow:
 
 1. Ensure `/opt/auravo-web/.env.production.local` contains:
-   - `GROQ_API_KEY`
-   - `GROQ_MODEL`
+   - `GROQ_API_KEY`, `GROQ_MODEL`
+   - `DEEPGRAM_API_KEY` (optional TTS)
+   - `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET` (paid Quick Analysis)
 2. Run deploy script:
    - `cd /opt/auravo-web && ./scripts/deploy-hetzner.sh`
 3. Script performs:
@@ -450,7 +539,7 @@ Expected:
 
 ---
 
-## 19) Related documents
+## 20) Related documents
 
 - [INSTALLATION.md](./INSTALLATION.md)
 - [POCKETBASE.md](./POCKETBASE.md)

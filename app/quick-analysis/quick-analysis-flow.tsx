@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AuravoMark } from "@/components/brand";
 import { CoachInsightCards } from "@/components/coach-insight-cards";
 import { Button } from "@/components/ui/button";
 import { VisualPromptScene } from "@/app/(app)/assessment/visual-prompt-scene";
@@ -13,7 +12,7 @@ import type {
 import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
-import { ContactForm } from "./components/ContactForm";
+import { QuickAnalysisPaywall } from "./components/QuickAnalysisPaywall";
 import { PronunciationTranscript } from "./components/PronunciationTranscript";
 import { DemoAmbient } from "./components/DemoAmbient";
 import { QuestionStep } from "./components/QuestionStep";
@@ -22,6 +21,11 @@ import { SpokenCaption } from "./components/SpokenCaption";
 import { VoiceOrb } from "./components/VoiceOrb";
 import { WelcomeLine } from "./components/WelcomeLine";
 import { readJsonResponse } from "@/lib/api/read-json-response";
+import type { QuickAnalysisUsageSnapshot } from "@/lib/billing/quick-analysis-usage-types";
+import {
+  QUICK_ANALYSIS_BUSY_MESSAGE,
+  QUICK_ANALYSIS_SESSION_MAX_RECORDING_MS,
+} from "@/lib/quick-analysis/constants";
 import {
   ANALYSIS_QUESTION_KEYS,
   Q3_ANALYSIS_SEGMENT_INDEX,
@@ -85,6 +89,42 @@ const DEFAULT_SCORES: SixDimensionScores = {
 const SCORE_TIMEOUT_MS = 20_000;
 const FULL_ANALYSIS_TIMEOUT_MS = 300_000;
 
+function analysisErrorMessage(data: Record<string, unknown>, fallback: string): string {
+  if (data.code === "SERVER_BUSY") return QUICK_ANALYSIS_BUSY_MESSAGE;
+  return typeof data.error === "string" ? data.error : fallback;
+}
+
+async function refreshUsage(): Promise<{
+  usage: QuickAnalysisUsageSnapshot;
+  razorpayKeyId: string | null;
+}> {
+  const res = await fetch("/api/quick-analysis/usage");
+  const data = await readJsonResponse(res);
+  if (!res.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "Could not load usage.");
+  }
+  return {
+    usage: data.usage as QuickAnalysisUsageSnapshot,
+    razorpayKeyId: typeof data.razorpayKeyId === "string" ? data.razorpayKeyId : null,
+  };
+}
+
+async function reserveAssessmentSlot(): Promise<QuickAnalysisUsageSnapshot> {
+  const res = await fetch("/api/quick-analysis/start", { method: "POST" });
+  const data = await readJsonResponse(res);
+  if (res.status === 402) {
+    const err = new Error(
+      typeof data.error === "string" ? data.error : "Daily limit reached.",
+    ) as Error & { code?: string };
+    err.code = "PAYWALL_REQUIRED";
+    throw err;
+  }
+  if (!res.ok) {
+    throw new Error(typeof data.error === "string" ? data.error : "Could not start assessment.");
+  }
+  return data.usage as QuickAnalysisUsageSnapshot;
+}
+
 type SegmentPrefetchResult = {
   transcript: string;
   whispered: boolean;
@@ -112,7 +152,10 @@ async function fetchSegmentPrefetch(
     form.append("browserTranscript", browserTranscript);
     const res = await fetch("/api/quick-analysis/analyze", { method: "POST", body: form });
     const data = await readJsonResponse(res);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      if (data.code === "SERVER_BUSY") throw new Error(QUICK_ANALYSIS_BUSY_MESSAGE);
+      return null;
+    }
     const transcript = typeof data.transcript === "string" ? data.transcript.trim() : "";
     if (!transcript) return null;
     return {
@@ -141,7 +184,7 @@ async function scoreFromTranscript(transcript: string): Promise<DeterministicRes
     signal: AbortSignal.timeout(SCORE_TIMEOUT_MS),
   });
   const data = await readJsonResponse(res);
-  if (!res.ok) throw new Error(typeof data.error === "string" ? data.error : "Scoring failed");
+  if (!res.ok) throw new Error(analysisErrorMessage(data, "Scoring failed"));
   return data as unknown as DeterministicResponse;
 }
 
@@ -200,7 +243,7 @@ async function analyzeFull(
   });
   const data = await readJsonResponse(res);
   if (!res.ok) {
-    throw new Error(typeof data.error === "string" ? data.error : "Full analysis failed");
+    throw new Error(analysisErrorMessage(data, "Full analysis failed"));
   }
   return data as unknown as FullAnalysisResponse;
 }
@@ -236,9 +279,14 @@ export function QuickAnalysisFlow() {
   const [analyzing, setAnalyzing] = React.useState(false);
   const [analysisStatus, setAnalysisStatus] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [showContact, setShowContact] = React.useState(false);
   const [fullPath, setFullPath] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
+  const [usage, setUsage] = React.useState<QuickAnalysisUsageSnapshot | null>(null);
+  const [razorpayKeyId, setRazorpayKeyId] = React.useState<string | null>(null);
+  const [showPaywall, setShowPaywall] = React.useState(false);
+  const [startingSession, setStartingSession] = React.useState(false);
+  const [midpointDone, setMidpointDone] = React.useState(false);
+  const [sessionRecordingMs, setSessionRecordingMs] = React.useState(0);
   /** Browser-only STT hint — rendered after mount to avoid hydration mismatch. */
   const [clientHints, setClientHints] = React.useState<{
     showSttWarning: boolean;
@@ -248,13 +296,53 @@ export function QuickAnalysisFlow() {
   const spokeRef = React.useRef<string | null>(null);
   const recordingRef = React.useRef(false);
   const welcomeStartedRef = React.useRef(false);
+  const sessionReservedRef = React.useRef(false);
+  const totalRecordingMsRef = React.useRef(0);
+  const recordingStartedAtRef = React.useRef<number | null>(null);
   const browserSttRef = React.useRef(browserStt);
   browserSttRef.current = browserStt;
 
   React.useEffect(() => {
     setMounted(true);
     setClientHints({ showSttWarning: !browserStt.supported });
+    void refreshUsage()
+      .then(({ usage: nextUsage, razorpayKeyId: keyId }) => {
+        setUsage(nextUsage);
+        setRazorpayKeyId(keyId);
+        if (!nextUsage.canStart) setShowPaywall(true);
+      })
+      .catch(() => {
+        /* usage banner is optional */
+      });
   }, [browserStt.supported]);
+
+  const beginAssessmentSession = React.useCallback(async () => {
+    if (sessionReservedRef.current) return true;
+    setStartingSession(true);
+    setError(null);
+    try {
+      const nextUsage = await reserveAssessmentSlot();
+      sessionReservedRef.current = true;
+      totalRecordingMsRef.current = 0;
+      setUsage(nextUsage);
+      setShowPaywall(false);
+      return true;
+    } catch (e) {
+      const code = e && typeof e === "object" && "code" in e ? String((e as { code?: string }).code) : "";
+      if (code === "PAYWALL_REQUIRED") {
+        setShowPaywall(true);
+        void refreshUsage().then(({ usage: nextUsage, razorpayKeyId: keyId }) => {
+          setUsage(nextUsage);
+          setRazorpayKeyId(keyId);
+        });
+        return false;
+      }
+      setError(e instanceof Error ? e.message : "Could not start assessment.");
+      return false;
+    } finally {
+      setStartingSession(false);
+    }
+  }, []);
 
   React.useEffect(() => {
     recordingRef.current = recording;
@@ -460,7 +548,6 @@ export function QuickAnalysisFlow() {
         setCoachSummary(result.coachSummary);
         applyTranscriptSegments(result.transcriptSegments ?? []);
         setPhoneticMap(result.phoneticMap ?? {});
-        setShowContact(true);
         setFullPath(true);
         setStep("results");
         announceStep("results");
@@ -485,6 +572,11 @@ export function QuickAnalysisFlow() {
 
   const finishRecording = React.useCallback(async () => {
     clearMaxDuration();
+    if (recordingStartedAtRef.current != null) {
+      totalRecordingMsRef.current += Date.now() - recordingStartedAtRef.current;
+      recordingStartedAtRef.current = null;
+      setSessionRecordingMs(totalRecordingMsRef.current);
+    }
     try {
       const [blob, browserTranscript] = await Promise.all([stopRecording(), browserStt.stop()]);
 
@@ -577,38 +669,71 @@ export function QuickAnalysisFlow() {
       void finishRecording();
       return;
     }
+    const remainingMs = QUICK_ANALYSIS_SESSION_MAX_RECORDING_MS - totalRecordingMsRef.current;
+    if (remainingMs <= 0) {
+      setError("You've used the full 5-minute session limit for this assessment.");
+      return;
+    }
     setError(null);
     clearMaxDuration();
     browserStt.start();
+    recordingStartedAtRef.current = Date.now();
     void startRecording();
-    if (step === "q3_about_city") {
-      maxDurationRef.current = setTimeout(() => {
-        if (recordingRef.current) void finishRecording();
-      }, 90_000);
-    } else if (step === "q5_visual") {
-      maxDurationRef.current = setTimeout(() => {
-        if (recordingRef.current) void finishRecording();
-      }, 60_000);
-    }
-  }, [analyzing, browserStt, clearMaxDuration, finishRecording, startRecording, step, unlockFromGesture]);
+    maxDurationRef.current = setTimeout(() => {
+      if (recordingRef.current) void finishRecording();
+    }, remainingMs);
+  }, [analyzing, browserStt, clearMaxDuration, finishRecording, startRecording, unlockFromGesture]);
 
   const scoresForDisplay =
-    midpointScores && (step === "midpoint" || (showContact && !fullPath)) ? midpointScores : displayScores;
+    midpointScores && step === "midpoint" && !fullPath ? midpointScores : displayScores;
+
+  const recordingRemainingMs = Math.max(
+    0,
+    QUICK_ANALYSIS_SESSION_MAX_RECORDING_MS - sessionRecordingMs,
+  );
+  const recordingRemainingLabel = `${Math.ceil(recordingRemainingMs / 1000)}s left in this session`;
 
   const stepProgress = STEP_PROGRESS[step];
   const coachSpeaking = speaking && step !== "welcome";
   const welcomeLinesActive = mounted && (speaking || welcomeReady);
 
+  if (showPaywall) {
+    return (
+      <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 py-6">
+        <QuickAnalysisPaywall
+          razorpayKeyId={razorpayKeyId}
+          onSubscribed={() => {
+            void refreshUsage().then(({ usage: nextUsage, razorpayKeyId: keyId }) => {
+              setUsage(nextUsage);
+              setRazorpayKeyId(keyId);
+              setShowPaywall(false);
+            });
+          }}
+        />
+        <Button variant="outline" asChild>
+          <Link href="/dashboard">Back to Home</Link>
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <main className="relative flex min-h-dvh flex-col items-center overflow-hidden bg-background px-6 py-10">
+    <div className="relative flex w-full flex-col items-center overflow-hidden px-1 py-4 sm:px-2">
       <DemoAmbient />
 
       <div className="relative z-10 flex w-full max-w-2xl flex-col items-center gap-8">
-        <div className="flex w-full items-center justify-between gap-4">
-          <AuravoMark className="h-9 max-w-[160px] opacity-95" />
-          <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.2em] text-primary">
-            Live demo
-          </span>
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-foreground">Quick Analysis</p>
+            <p className="text-xs text-muted-foreground">5-minute voice snapshot with Voca</p>
+          </div>
+          {usage ? (
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-primary">
+              {usage.subscribed
+                ? "Subscribed"
+                : `${usage.remainingFree} free left today`}
+            </span>
+          ) : null}
         </div>
 
         {stepProgress ? (
@@ -652,6 +777,7 @@ export function QuickAnalysisFlow() {
                 size="lg"
                 variant="glow"
                 className="min-w-[11rem]"
+                disabled={startingSession}
                 onClick={() => {
                   unlockFromGesture();
                   if (!welcomeReady) {
@@ -663,12 +789,22 @@ export function QuickAnalysisFlow() {
                     setWelcomeReady(true);
                     return;
                   }
-                  stopSpeaking();
-                  spokeRef.current = null;
-                  setStep("q1_city");
+                  void (async () => {
+                    const ok = await beginAssessmentSession();
+                    if (!ok) return;
+                    stopSpeaking();
+                    spokeRef.current = null;
+                    setStep("q1_city");
+                  })();
                 }}
               >
-                {welcomeReady ? "Start speaking" : speaking ? "Continue" : "Play intro"}
+                {startingSession
+                  ? "Starting…"
+                  : welcomeReady
+                    ? "Start speaking"
+                    : speaking
+                      ? "Continue"
+                      : "Play intro"}
               </Button>
               {mounted && speaking && !welcomeReady ? (
                 <Button
@@ -685,6 +821,10 @@ export function QuickAnalysisFlow() {
               ) : null}
             </div>
           </div>
+        ) : null}
+
+        {step === "q1_city" || step === "q2_duration" || step === "q3_about_city" || step === "q4_objects" || step === "q5_visual" ? (
+          <p className="text-xs text-muted-foreground">{recordingRemainingLabel}</p>
         ) : null}
 
         {step === "q1_city" ? (
@@ -728,14 +868,13 @@ export function QuickAnalysisFlow() {
               caption="Your snapshot so far — from your city description."
               className="rounded-3xl border border-white/10 bg-card/30 p-6 backdrop-blur-md"
             />
-            {!showContact ? (
+            {!midpointDone ? (
               <div className="flex flex-wrap justify-center gap-3">
                 <Button
                   variant="glow"
                   disabled={coachSpeaking}
                   onClick={() => {
                     setFullPath(true);
-                    setShowContact(false);
                     spokeRef.current = null;
                     setStep("q4_objects");
                   }}
@@ -747,7 +886,7 @@ export function QuickAnalysisFlow() {
                   disabled={coachSpeaking}
                   onClick={() => {
                     void speak(QUESTIONS.thank_you_no);
-                    setShowContact(true);
+                    setMidpointDone(true);
                     void loadMidpointTranscriptSegments();
                   }}
                 >
@@ -755,23 +894,17 @@ export function QuickAnalysisFlow() {
                 </Button>
               </div>
             ) : (
-              <>
-                {transcriptSegments.length > 0 ? (
-                  <PronunciationTranscript
-                    segments={transcriptSegments}
-                    phoneticMap={phoneticMap}
-                    className="w-full"
-                  />
-                ) : null}
-                <ContactForm
-                  scores={scoresForDisplay}
-                  onSuccess={() => {
-                    void speak(QUESTIONS.thank_you_submit);
-                    setStep("thank_you");
-                  }}
-                />
-              </>
+              <Button variant="glow" asChild>
+                <Link href="/dashboard">Back to Home</Link>
+              </Button>
             )}
+            {transcriptSegments.length > 0 ? (
+              <PronunciationTranscript
+                segments={transcriptSegments}
+                phoneticMap={phoneticMap}
+                className="w-full"
+              />
+            ) : null}
           </div>
         ) : null}
 
@@ -830,15 +963,9 @@ export function QuickAnalysisFlow() {
                     />
                   </div>
                 ) : null}
-                {showContact ? (
-                  <ContactForm
-                    scores={displayScores}
-                    onSuccess={() => {
-                      void speak(QUESTIONS.thank_you_submit);
-                      setStep("thank_you");
-                    }}
-                  />
-                ) : null}
+                <Button variant="glow" asChild>
+                  <Link href="/dashboard">Back to Home</Link>
+                </Button>
               </>
             )}
           </div>
@@ -849,11 +976,11 @@ export function QuickAnalysisFlow() {
             <VoiceOrb mode={coachSpeaking ? "speaking" : "idle"} />
             <SpokenCaption text={caption ?? QUESTIONS.thank_you_page} hint="Thank you" />
             <Button variant="outline" asChild>
-              <Link href="/">Back to home</Link>
+              <Link href="/dashboard">Back to Home</Link>
             </Button>
           </div>
         ) : null}
       </div>
-    </main>
+    </div>
   );
 }

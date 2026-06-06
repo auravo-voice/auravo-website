@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { insertQuickAnalysisLead } from "@/db/queries/sqlite/quick-analysis-leads";
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
 import { isSqliteStorage } from "@/lib/storage/env";
 
 export const runtime = "nodejs";
@@ -28,6 +29,9 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request) {
+  const auth = await requireApiUserId();
+  if (isAuthError(auth)) return auth;
+
   if (!isSqliteStorage()) {
     return NextResponse.json(
       {

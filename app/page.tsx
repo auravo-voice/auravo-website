@@ -16,10 +16,7 @@ export default function HomePage() {
           practiced, not improvised.
         </p>
         <Button asChild size="lg" className="mt-10 min-w-[12rem] shadow-primary/25" variant="glow">
-          <Link href="/dashboard">Open Auravo</Link>
-        </Button>
-        <Button asChild size="lg" variant="outline" className="mt-3 min-w-[12rem]">
-          <Link href="/quick-analysis">Quick Analysis</Link>
+          <Link href="/login?redirect=/dashboard">Open Auravo</Link>
         </Button>
         <p className="mt-6 text-sm text-muted-foreground">
           New here?{" "}

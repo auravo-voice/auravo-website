@@ -119,6 +119,29 @@ export const recordingReview = sqliteTable("recording_review", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+/** Completed Quick Analysis assessments per user (for daily free-tier limits). */
+export const quickAnalysisRun = sqliteTable("quick_analysis_run", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => userProfile.id),
+  dayKey: text("day_key").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+/** Active Quick Analysis subscription entitlement (Razorpay). */
+export const userSubscription = sqliteTable("user_subscription", {
+  userId: text("user_id")
+    .primaryKey()
+    .references(() => userProfile.id),
+  planId: text("plan_id").notNull(),
+  razorpayOrderId: text("razorpay_order_id"),
+  razorpayPaymentId: text("razorpay_payment_id"),
+  expiresAt: integer("expires_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 /** Contact + scores from the public Quick Analysis funnel (no auth). */
 export const quickAnalysisLead = sqliteTable("quick_analysis_lead", {
   id: text("id").primaryKey(),

@@ -1,6 +1,6 @@
 # Auravo Web — Known Issues
 
-Tracked limitations and gaps as of the PocketBase migration. Not every item has a workaround.
+Tracked limitations and gaps. For fixes see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md).
 
 ---
 
@@ -8,22 +8,21 @@ Tracked limitations and gaps as of the PocketBase migration. Not every item has 
 
 | Issue | Impact | Workaround / status |
 |-------|--------|---------------------|
-| **Vercel serverless cannot run Whisper/ffmpeg locally** | Real ASR needs self-hosted API or placeholder | Deploy API-heavy routes on Hetzner; or `TRANSCRIPTION_PROVIDER=placeholder` |
-| **Ollama not on Vercel** | Coach uses fallbacks unless `OLLAMA_BASE_URL` points to external host | Run Ollama on Hetzner; set env on Vercel to private URL |
-| **`NEXT_PUBLIC_*` baked at build** | Changing PB URL without rebuild breaks client | Rebuild image / redeploy Vercel after URL change |
-| **`npm ci` strict lockfile** | Vercel build fails if lock not committed | Always commit `package-lock.json` after `npm install` |
-| **Podman/nginx network isolation** | 502 if proxy targets wrong `127.0.0.1` | Use host-published port or container DNS name — see [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) |
+| **`NEXT_PUBLIC_*` baked at build** | Changing PB URL without rebuild breaks client | Rebuild image / redeploy after URL change |
+| **`npm ci` strict lockfile** | CI fails if lock not committed | Commit `package-lock.json` after `npm install` |
+| **Podman/nginx network isolation** | 502 if proxy targets wrong upstream | Use `127.0.0.1:3001` on host nginx |
+| **In-memory analysis concurrency cap** | Max 5 parallel jobs per container process | No cross-instance queue; user sees “servers busy” |
 
 ---
 
-## PocketBase / backend
+## Storage & backend
 
 | Issue | Impact | Workaround / status |
 |-------|--------|---------------------|
-| **Data collections not auto-created** | Assessment/API 404 until admin setup | Manually create collections per [POCKETBASE.md](./POCKETBASE.md) |
-| **Mobile vs web schema drift** | Field name mismatches if mobile uses different collection names | Align collection/field names with mobile team |
-| **No offline mode** | App requires live PocketBase | None |
-| **File size limits** | Large uploads may fail per PB settings | Adjust PocketBase max upload size in admin |
+| **Hybrid storage on Hetzner** | Auth = PocketBase, data = SQLite | By design (`AURAVO_STORAGE=sqlite`); document for ops |
+| **Quick Analysis usage tables SQLite-only** | Daily limits / subscriptions not in PocketBase mode | Use sqlite on Hetzner or extend PB adapters |
+| **PocketBase data collections not auto-created** | 404 when `AURAVO_STORAGE=pocketbase` without setup | Create collections per [POCKETBASE.md](./POCKETBASE.md) |
+| **No offline mode** | App requires live PocketBase for auth | None |
 
 ---
 
@@ -33,7 +32,21 @@ Tracked limitations and gaps as of the PocketBase migration. Not every item has 
 |-------|--------|---------------------|
 | **Apple Sign-In not implemented** | Web users cannot use Apple ID | Use email or Google |
 | **OAuth redirect host sensitivity** | Wrong callback if `NEXT_PUBLIC_APP_URL` missing | Set env and rebuild |
-| **Session = cookie only** | No server-side session store beyond PB token | By design (PocketBase JWT) |
+| **Edge proxy only checks cookie presence** | Expired `pb_auth` may pass until API fails | Re-login |
+| **Legacy `auravo_user_id` cookie** | Still minted in SQLite dev mode | PB auth is canonical in production |
+
+---
+
+## Quick Analysis
+
+| Issue | Impact | Workaround / status |
+|-------|--------|---------------------|
+| **3 free assessments / day** | 4th requires Razorpay | Subscribe ₹500/mo or ₹5000/yr |
+| **5-minute total recording cap** | Long answers auto-stop | By design |
+| **Groq 429 under load** | Adds 5–30s retry delay | Automatic backoff in `chat-json.ts` |
+| **Polish-transcript Groq schema failures** | Falls back to raw Whisper text | Non-blocking |
+| **HF Hub unauthenticated warning** | Slower first Whisper model fetch on cold start | Set `HF_TOKEN` optional |
+| **Contact / lead form removed** | No anonymous lead capture | Signed-in feature only |
 
 ---
 
@@ -42,9 +55,7 @@ Tracked limitations and gaps as of the PocketBase migration. Not every item has 
 | Issue | Impact | Workaround / status |
 |-------|--------|---------------------|
 | **Settings “Delete account” disabled** | UI placeholder | Use PocketBase admin |
-| **Progress copy may reference local `data/uploads`** | Misleading text in settings/progress | Cosmetic; files are in PocketBase |
-| **“Good evening” hardcoded on dashboard** | Wrong greeting in morning | Cosmetic — future i18n/time-of-day |
-| **Middleware only checks cookie presence** | Expired token may pass until API fails | PB refresh not wired on every route |
+| **“Good evening” hardcoded on dashboard** | Wrong greeting by time of day | Cosmetic |
 
 ---
 
@@ -52,10 +63,9 @@ Tracked limitations and gaps as of the PocketBase migration. Not every item has 
 
 | Issue | Impact | Workaround / status |
 |-------|--------|---------------------|
-| **Coach timeout on slow CPU / 7b model** | Long dashboard narrative waits | Raise `AURAVO_COACH_TIMEOUT_MS`; use `qwen2.5:3b` |
+| **Groq provider rate limits** | Slow Quick Analysis at peak | Retries; consider higher Groq tier |
 | **Python 3.14 + Homebrew expat** | macOS transcription subprocess issues | Use 3.11–3.12 venv from `setup:transcription` |
-| **openSMILE / VAD optional** | Some scores transcript-only without packages | Run `npm run setup:transcription` |
-| **Placeholder transcription** | Scores not from real audio | Set `TRANSCRIPTION_PROVIDER=faster-whisper` on server |
+| **Placeholder transcription** | Scores not from real audio | `TRANSCRIPTION_PROVIDER=faster-whisper` on server |
 
 ---
 
@@ -63,10 +73,10 @@ Tracked limitations and gaps as of the PocketBase migration. Not every item has 
 
 | Issue | Notes |
 |-------|--------|
-| Legacy `auravo_user_id` cookie helpers still in codebase for some client handoff paths | Being phased out; PB auth is canonical |
-| No Dockerfile in repo root by default | Example in [INSTALLATION.md](./INSTALLATION.md) — add to repo if desired |
-| Next.js 16 middleware deprecation warning | “Use proxy instead of middleware” — monitor Next upgrades |
-| NFT / `next.config.ts` build warning | Turbopack trace includes analysis imports — noisy but builds succeed |
+| Next.js 16 uses `proxy.ts` instead of `middleware.ts` | Anonymous cookie minting for dev SQLite only |
+| NFT / `next.config.ts` build warning | Turbopack trace noise; builds succeed |
+| Razorpay webhook not implemented | Payment verified client-side via `/api/billing/razorpay/verify` only |
+| `quick_analysis_lead` table legacy | Public demo leads; submit now requires auth |
 
 ---
 
@@ -74,19 +84,18 @@ Tracked limitations and gaps as of the PocketBase migration. Not every item has 
 
 | Issue | Resolution |
 |-------|------------|
-| SQLite on Vercel → dashboard crash | Migrated to PocketBase |
-| Anonymous auto user cookie | Replaced with `/login` + `pb_auth` |
-| “Demo learner” in sidebar | Shows PocketBase user display name |
-| Sign in disabled placeholder | Working `/login` + Google OAuth |
+| SQLite on Vercel → dashboard crash | Hetzner uses SQLite with volume; auth via PocketBase |
+| Public Quick Analysis demo | Moved behind sign-in + daily limits |
+| Anonymous quick-analysis API bypass in proxy | Removed; APIs require `pb_auth` |
 
 ---
 
 ## Reporting new issues
 
-When filing a bug, include:
+Include:
 
-1. URL (e.g. `auravo-web.auravo.ai` vs Vercel)
-2. Logged in? (Google vs email)
-3. Browser console + server/container log snippet
-4. Whether PocketBase collections exist
-5. `NEXT_PUBLIC_POCKETBASE_URL` set at build time (yes/no)
+1. URL (`www.auravo.ai` vs local)
+2. Signed in? (Google vs email)
+3. Quick Analysis step (segment / full / paywall)
+4. Browser console + `podman logs auravo-web` snippet
+5. `GROQ_API_KEY` / `RAZORPAY_*` present in production env (yes/no, not values)

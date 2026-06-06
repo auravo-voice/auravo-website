@@ -6,13 +6,19 @@
 |-------------|-----------------|
 | Node.js | ≥ 20.9.0 |
 | npm | 10+ (for `npm ci`) |
-| PocketBase | Running at `https://pb.auravo.ai` (or local for dev) |
+| PocketBase | Running at `https://pb.auravo.ai` (auth; required for sign-in) |
 | Git | Clone this repository |
 
-**Optional (full voice features on self-hosted API):**
+**Self-hosted voice stack (Hetzner / local full features):**
+
+- Python 3.11–3.12, ffmpeg, faster-whisper (`npm run setup:transcription`)
+- Groq API key (`GROQ_API_KEY`) — coaching and Quick Analysis scoring
+- Deepgram API key (optional) — Quick Analysis Voca TTS
+- Razorpay keys (optional) — Quick Analysis paid tier
+
+**Optional (legacy / fallback coach paths):**
 
 - Ollama + pulled model (e.g. `ollama pull qwen2.5:3b`)
-- Python 3.11–3.12, ffmpeg, faster-whisper (`npm run setup:transcription`)
 
 ---
 
@@ -33,25 +39,37 @@ npm ci
 Create `.env.local` in the project root (never commit secrets):
 
 ```bash
-# Required — PocketBase public API (browser + server)
+# Storage: sqlite (default) or pocketbase
+AURAVO_STORAGE=sqlite
+# AURAVO_DB_DIR=./data
+
+# Required — PocketBase (auth)
 NEXT_PUBLIC_POCKETBASE_URL=https://pb.auravo.ai
 
-# Recommended for OAuth redirects on custom hosts
-NEXT_PUBLIC_APP_URL=https://app.auravo.ai
+# Recommended for OAuth redirects
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-# Ollama (server-side only)
-OLLAMA_BASE_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=qwen2.5:3b
-AURAVO_COACH_TIMEOUT_MS=180000
+# Required for coaching + Quick Analysis scoring
+GROQ_API_KEY=your_groq_key
+GROQ_MODEL=llama-3.1-8b-instant
 
-# Transcription (self-hosted API only)
+# Quick Analysis Voca voice (optional — browser TTS fallback)
+DEEPGRAM_API_KEY=your_deepgram_key
+
+# Quick Analysis subscriptions (optional)
+# RAZORPAY_KEY_ID=rzp_test_...
+# RAZORPAY_KEY_SECRET=...
+
+# Transcription (self-hosted API)
 TRANSCRIPTION_PROVIDER=faster-whisper
-FASTER_WHISPER_MODEL=base
-# FASTER_WHISPER_PYTHON=/opt/auravo-web/.venv-transcription/bin/python
+FASTER_WHISPER_MODEL=small
+# FASTER_WHISPER_PYTHON=/path/to/.venv-transcription/bin/python
 
 # Dev: phone testing on LAN
 # NEXT_ALLOWED_DEV_ORIGINS=192.168.1.37
 ```
+
+See [`.env.example`](../.env.example) for the full list.
 
 ### Build-time vs runtime
 
@@ -59,16 +77,17 @@ FASTER_WHISPER_MODEL=base
 |----------|-------------|
 | `NEXT_PUBLIC_POCKETBASE_URL` | **Build and runtime** (baked into client bundle at build) |
 | `NEXT_PUBLIC_APP_URL` | Build recommended for OAuth |
-| `OLLAMA_*`, `TRANSCRIPTION_*` | Runtime only (server) |
+| `GROQ_*`, `DEEPGRAM_*`, `RAZORPAY_*`, `TRANSCRIPTION_*`, `AURAVO_DB_DIR` | Runtime only (server) |
 
 ---
 
 ## 3. PocketBase setup
 
-Complete **before** using assessment or dashboard data features:
-
-1. Follow [POCKETBASE.md](./POCKETBASE.md) — create collections, CORS, Google OAuth.
+1. Follow [POCKETBASE.md](./POCKETBASE.md) — auth collection `users`, optional data collections if `AURAVO_STORAGE=pocketbase`.
 2. Confirm health: `curl https://pb.auravo.ai/api/health`
+3. Add `http://localhost:3000` to PocketBase **allowed origins**.
+
+On **Hetzner production**, auth uses PocketBase while app data uses **SQLite** on volume `auravo-data` (`AURAVO_STORAGE=sqlite`).
 
 ---
 
@@ -80,26 +99,19 @@ npm run dev
 npm run dev:lan
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:3000/login](http://localhost:3000/login).
 
-- Login: [http://localhost:3000/login](http://localhost:3000/login)
-- Add `http://localhost:3000` to PocketBase allowed origins.
+- **Quick Analysis:** `/quick-analysis` (requires sign-in)
+- **Dashboard:** `/dashboard`
 
-### Transcription setup (optional)
+### Transcription setup
 
 ```bash
 npm run setup:transcription   # Python venv + faster-whisper
-# Ensure ffmpeg is on PATH: ffmpeg -version
+ffmpeg -version
 ```
 
-Without this, set `TRANSCRIPTION_PROVIDER=placeholder` or `AURAVO_ALLOW_PLACEHOLDER_FALLBACK=1` for dev.
-
-### Ollama (optional)
-
-```bash
-ollama pull qwen2.5:3b
-ollama serve   # if not already running
-```
+Without this, set `AURAVO_ALLOW_PLACEHOLDER_FALLBACK=1` for dev only.
 
 ---
 
@@ -110,162 +122,115 @@ npm run build
 npm run start
 ```
 
-Runs on [http://localhost:3000](http://localhost:3000) by default.
-
 ---
 
 ## 6. Deploy to Vercel
 
 1. Connect GitHub repo to Vercel.
-2. **Environment variables** (Project → Settings):
+2. **Environment variables:**
    - `NEXT_PUBLIC_POCKETBASE_URL=https://pb.auravo.ai`
-   - `NEXT_PUBLIC_APP_URL=https://<your-vercel-domain>` (or custom domain)
-3. Build uses `vercel.json`: `npm ci` + `npm run build`.
-4. Add Vercel URL to PocketBase **allowed origins** and Google OAuth redirect URIs.
-5. Custom domain (optional): `app.auravo.ai` → CNAME to Vercel.
+   - `NEXT_PUBLIC_APP_URL=https://<your-vercel-domain>`
+   - `GROQ_API_KEY` (if API routes run on Vercel)
+3. Add Vercel URL to PocketBase allowed origins and Google OAuth redirect URIs.
 
-**Vercel limitations:** SQLite and local Whisper are not available on serverless alone. Use PocketBase for data; point `OLLAMA_BASE_URL` / transcription to an external host if needed.
+**Vercel limitations:** SQLite and local Whisper are not available on serverless alone. Quick Analysis, assessment finalize, and practice recording need a **self-hosted** Node container (Hetzner) or will return transcription/coach errors.
 
 ---
 
-## 7. Deploy with Podman/Docker (Debian VPS)
+## 7. Deploy with Podman (Hetzner production)
 
-Example layout (matches a typical Hetzner + Cloudflare setup):
+Canonical production host: `https://www.auravo.ai` on server `91.99.144.77`.
 
 | Container | Port | Role |
 |-----------|------|------|
 | `auravo-web` | `127.0.0.1:3001→3000` | This app |
-| `auth` (PocketBase) | `127.0.0.1:8080` | API |
+| `auth` (PocketBase) | internal `8080` | Auth API |
 | `router` (nginx) | `80`/`443` | Reverse proxy |
 
-### 7.1 Build image
+### 7.1 Repository layout on server
 
-Example `Containerfile` (create in repo root if not present):
-
-```dockerfile
-FROM node:20-bookworm-slim AS builder
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
-COPY . .
-ARG NEXT_PUBLIC_POCKETBASE_URL=https://pb.auravo.ai
-ARG NEXT_PUBLIC_APP_URL=https://auravo-web.auravo.ai
-ENV NEXT_PUBLIC_POCKETBASE_URL=$NEXT_PUBLIC_POCKETBASE_URL
-ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
-RUN npm run build
-
-FROM node:20-bookworm-slim AS runner
-WORKDIR /app
-ENV NODE_ENV=production
-COPY --from=builder /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.ts ./
-EXPOSE 3000
-CMD ["npm", "run", "start"]
+```bash
+/opt/auravo-web          # git clone
+/opt/auravo-web/.env.production.local   # secrets (not in git)
 ```
+
+### 7.2 Secrets file (`.env.production.local`)
+
+```bash
+GROQ_API_KEY=...
+GROQ_MODEL=llama-3.1-8b-instant
+DEEPGRAM_API_KEY=...          # optional
+RAZORPAY_KEY_ID=...           # optional — Quick Analysis billing
+RAZORPAY_KEY_SECRET=...
+```
+
+### 7.3 Deploy script
+
+From the server:
 
 ```bash
 cd /opt/auravo-web
-podman build \
-  --build-arg NEXT_PUBLIC_POCKETBASE_URL=https://pb.auravo.ai \
-  --build-arg NEXT_PUBLIC_APP_URL=https://auravo-web.auravo.ai \
-  -t auravo-web:latest .
-```
-
-### 7.2 Run container
-
-On Hetzner, PocketBase runs as container `auth` on Podman network `voca`. The app must join that network and use an internal PB URL (host `/etc/hosts` often maps `pb.auravo.ai` → `127.0.0.1`, which breaks server-side HTTPS from inside containers).
-
-**Ollama:** host `ollama serve` defaults to `127.0.0.1:11434`. Containers reach it via `host.containers.internal` only after binding Ollama on all interfaces:
-
-```bash
-sudo mkdir -p /etc/systemd/system/ollama.service.d
-printf '%s\n' '[Service]' 'Environment="OLLAMA_HOST=0.0.0.0:11434"' | sudo tee /etc/systemd/system/ollama.service.d/override.conf
-sudo systemctl daemon-reload && sudo systemctl restart ollama
-```
-
-**Nginx upload limit:** Quick Analysis final step uploads several WebM clips in one POST. The `auravo-web` vhost must set `client_max_body_size 100m;` (default nginx is 1m → HTTP 413). Other vhosts on the server (`voassess`, `wordle`) already use 100m.
-
-**Quick Analysis leads:** The contact form writes to SQLite table `quick_analysis_lead` (name, email, phone — empty string if omitted, six scores). On Hetzner the DB file is on volume `auravo-data` (e.g. `auravo.sqlite` under the volume mount at `/data` in the container). Query from the host with `sqlite3` against that file, or inspect via any SQLite client.
-
-**Deploy** (from repo root on the server):
-
-```bash
 chmod +x scripts/deploy-hetzner.sh
 ./scripts/deploy-hetzner.sh
 ```
 
-Or manually:
+The script:
 
-```bash
-podman volume create auravo-data  # once
+1. Sources `.env.production.local`
+2. `git pull origin main`
+3. `podman build` (see repo `Containerfile` — Node + Python Whisper stack)
+4. Restarts `auravo-web` with:
+   - `AURAVO_STORAGE=sqlite`, `AURAVO_DB_DIR=/data`
+   - Volume `auravo-data:/data` (persistent SQLite + uploads)
+   - `POCKETBASE_URL=http://auth:8080` on Podman network `voca`
+   - `GROQ_API_KEY`, `DEEPGRAM_API_KEY`, `RAZORPAY_*`
+5. Health checks: `/login`, PocketBase reachability
 
-podman run -d --name auravo-web \
-  --network voca \
-  -p 127.0.0.1:3001:3000 \
-  -v auravo-data:/data \
-  -e NODE_ENV=production \
-  -e NEXT_PUBLIC_POCKETBASE_URL=https://pb.auravo.ai \
-  -e NEXT_PUBLIC_APP_URL=https://auravo.ai \
-  -e POCKETBASE_URL=http://auth:8080 \
-  -e AURAVO_STORAGE=sqlite \
-  -e AURAVO_DB_DIR=/data \
-  -e OLLAMA_BASE_URL=http://host.containers.internal:11434 \
-  -e OLLAMA_MODEL=qwen2.5:3b \
-  -e TRANSCRIPTION_PROVIDER=faster-whisper \
-  --replace \
-  auravo-web:latest
-```
+### 7.4 nginx upload limit (required for Quick Analysis)
 
-Set `NEXT_PUBLIC_APP_URL` to your public hostname (`https://auravo.ai` or `https://auravo-web.auravo.ai`) for Google OAuth callbacks.
-
-### 7.3 nginx upstream
-
-Proxy your public hostname to the published port:
+Quick Analysis full analysis uploads **multiple WebM clips** in one POST. Set on the `auravo-web` vhost:
 
 ```nginx
-server {
-    server_name auravo-web.auravo.ai;
-
-    location / {
-        proxy_pass http://127.0.0.1:3001;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+client_max_body_size 100m;
 ```
 
-> If nginx runs **inside** a container, `127.0.0.1:3001` may be wrong — use the host gateway IP or Podman DNS name for `auravo-web`.
+Default nginx `1m` causes HTTP **413** on the final analysis step.
 
-### 7.4 Cloudflare
+### 7.5 PocketBase from inside the container
 
-- DNS: `auravo-web` → server IP (proxied orange cloud optional).
-- SSL: **Full** if origin has HTTPS; **Flexible** if origin is HTTP only.
+Use **`POCKETBASE_URL=http://auth:8080`** on the `voca` network. Do not rely on `pb.auravo.ai` resolving to `127.0.0.1` inside the container.
 
-### 7.5 Verify
+### 7.6 Verify
 
 ```bash
 curl -sI http://127.0.0.1:3001/login
+curl -sI https://www.auravo.ai/quick-analysis   # redirects to login if unsigned
 podman logs auravo-web --tail 30
+cd /opt/auravo-web && git log -1 --oneline
 ```
+
+### 7.7 SQLite data location
+
+```bash
+podman volume inspect auravo-data
+# DB file: auravo.sqlite under volume mount (/data in container)
+```
+
+Tables include `quick_analysis_run` (daily usage) and `user_subscription` (Razorpay entitlements).
 
 ---
 
 ## 8. Post-install checklist
 
 - [ ] `NEXT_PUBLIC_POCKETBASE_URL` set at **build** time
-- [ ] PocketBase collections created ([POCKETBASE.md](./POCKETBASE.md))
-- [ ] CORS origins include all app URLs
+- [ ] `GROQ_API_KEY` set at runtime (Hetzner `.env.production.local`)
+- [ ] PocketBase CORS includes all app URLs
 - [ ] Google OAuth redirect URIs include `/api/auth/oauth2/callback`
 - [ ] Login works at `/login`
-- [ ] Dashboard loads after sign-in
-- [ ] (Self-hosted) Ollama reachable from API container
-- [ ] (Self-hosted) `npm run setup:transcription` + ffmpeg for real ASR
+- [ ] `/quick-analysis` loads after sign-in
+- [ ] nginx `client_max_body_size 100m` for Quick Analysis
+- [ ] (Paid tier) `RAZORPAY_KEY_*` in production env
+- [ ] `npm run setup:transcription` + ffmpeg for real ASR (included in Containerfile)
 
 ---
 
@@ -279,11 +244,12 @@ podman logs auravo-web --tail 30
 | `npm run start` | Production server |
 | `npm run test` | Vitest |
 | `npm run setup:transcription` | Python ASR venv |
+| `./scripts/deploy-hetzner.sh` | Hetzner Podman deploy |
 
 ---
 
 ## See also
 
-- [DESIGN.md](./DESIGN.md)
+- [DESIGN.md](./DESIGN.md) — Quick Analysis architecture
 - [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
 - [FAQ.md](./FAQ.md)

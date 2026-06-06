@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server";
 
+import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const auth = await requireApiUserId();
+  if (isAuthError(auth)) return auth;
+
   let text: string;
   try {
     const body = (await req.json()) as { text?: string };

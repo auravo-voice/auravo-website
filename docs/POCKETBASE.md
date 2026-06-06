@@ -4,8 +4,10 @@
 
 | Value | Data (sessions, scores, …) | Auth (Google / email) |
 |--------|---------------------------|------------------------|
-| `sqlite` (default) | Local `./data/auravo.sqlite` | PocketBase when `NEXT_PUBLIC_POCKETBASE_URL` is set |
+| `sqlite` (default; **Hetzner production**) | SQLite file on `AURAVO_DB_DIR` (e.g. `/data/auravo.sqlite` on volume `auravo-data`) | PocketBase when `NEXT_PUBLIC_POCKETBASE_URL` is set |
 | `pocketbase` | PocketBase collections below | PocketBase (required) |
+
+**Hetzner:** `deploy-hetzner.sh` sets `AURAVO_STORAGE=sqlite` and `POCKETBASE_URL=http://auth:8080`. Quick Analysis daily limits and Razorpay subscriptions live in SQLite tables (`quick_analysis_run`, `user_subscription`), not in PocketBase.
 
 Restart the dev server after changing `AURAVO_STORAGE`.
 

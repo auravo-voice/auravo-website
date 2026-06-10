@@ -1,13 +1,6 @@
 import { NextResponse } from "next/server";
 import { createBrowserPocketBase } from "@/lib/pocketbase";
-import { savePocketBaseAuthCookie } from "@/lib/pocketbase/server";
-import { ensureUserProfile } from "@/db/queries/user";
-import {
-  AURAVO_USER_ID_COOKIE,
-  auravoUserIdCookieOptions,
-} from "@/lib/auth/auravo-user-cookie";
-import { isPocketBaseAuthEnabled, isSqliteStorage } from "@/lib/storage/env";
-import { mapUserRecord } from "@/db/pocketbase-map";
+import { isPocketBaseAuthEnabled } from "@/lib/storage/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -44,25 +37,11 @@ export async function POST(req: Request) {
       name: name || email.split("@")[0],
       display_name: name || email.split("@")[0],
     });
-    await pb.collection("users").authWithPassword(email, password);
+    await pb.collection("users").requestVerification(email);
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Could not create account.";
     return NextResponse.json({ error: msg }, { status: 400 });
   }
 
-  const userId = pb.authStore.record?.id;
-  if (userId && isSqliteStorage()) {
-    const mapped = mapUserRecord(pb.authStore.record!);
-    await ensureUserProfile(userId, { displayName: mapped.displayName });
-  }
-
-  await savePocketBaseAuthCookie(pb);
-  const res = NextResponse.json({
-    ok: true,
-    user: { id: userId, email: pb.authStore.record?.email },
-  });
-  if (userId && isSqliteStorage()) {
-    res.cookies.set(AURAVO_USER_ID_COOKIE, userId, auravoUserIdCookieOptions());
-  }
-  return res;
+  return NextResponse.json({ message: "Check your email to verify your account" }, { status: 200 });
 }

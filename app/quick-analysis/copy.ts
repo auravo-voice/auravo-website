@@ -13,11 +13,10 @@ export const QUESTIONS = {
   q1_city: "So tell me — which city do you live in?",
   q2_duration: "And for how long have you been living there?",
   q3_about_city:
-    "Awesome! Would you like to speak five or six sentences about your city? Tell me what you love about it, what it's known for — anything at all.",
+    "Awesome! Would you like to speak five or six sentences about your city?",
   midpoint:
     "Great job! We've already done a fair amount of analysis. Would you like to spend a couple more minutes for a fuller picture?",
-  q4_objects:
-    "Great! Can you name five things that are around you right now? For example, a desk, a window, a phone.",
+  q4_objects: "Great! Can you name five things that are around you right now?",
   q5_visual: "Almost done! Please describe what you see in this image in a few sentences.",
   results:
     "Here's your full English profile snapshot. You're doing well in some areas, and there's exciting room to grow in others. Head to your dashboard anytime to keep practicing with Auravo.",

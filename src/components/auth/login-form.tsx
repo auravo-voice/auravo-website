@@ -18,11 +18,13 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [password, setPassword] = React.useState("");
   const [name, setName] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [notice, setNotice] = React.useState<string | null>(null);
   const [pending, setPending] = React.useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setPending(true);
     try {
       const endpoint = mode === "login" ? "/api/auth/login" : "/api/auth/signup";
@@ -38,6 +40,10 @@ export function AuthForm({ mode }: { mode: Mode }) {
       const data = (await res.json()) as { error?: string };
       if (!res.ok) {
         setError(data.error ?? "Request failed.");
+        return;
+      }
+      if (mode === "signup") {
+        setNotice("We've sent a verification email to your inbox. Please verify before logging in.");
         return;
       }
       const redirect = searchParams.get("redirect") || "/dashboard";
@@ -74,6 +80,11 @@ export function AuthForm({ mode }: { mode: Mode }) {
         placeholder="••••••••"
       />
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {notice ? (
+        <p className="rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-foreground">
+          {notice}
+        </p>
+      ) : null}
       <Button className="w-full gap-2" type="submit" disabled={pending}>
         <Mail className="size-4" />
         {pending ? "Please wait…" : mode === "login" ? "Sign in" : "Create account"}

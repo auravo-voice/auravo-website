@@ -25,6 +25,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import {
+  warningBannerClass,
+  warningBannerCompactClass,
+  warningInlineClass,
+  warningLabelClass,
+} from "@/lib/ui/warning-styles";
 
 type VoiceAnalysisShape = {
   fillerStats?: { count?: number; ratePerMin?: number; rateLabel?: string };
@@ -254,7 +260,7 @@ export function PracticeRunner({ prompts, baselineAverage }: Props) {
         </CardHeader>
         <CardContent>
           <Button asChild>
-            <Link href="/assessment">Start initial assessment</Link>
+            <Link href="/quick-analysis">Start Quick Analysis</Link>
           </Button>
         </CardContent>
       </Card>
@@ -387,7 +393,7 @@ export function PracticeRunner({ prompts, baselineAverage }: Props) {
               )}
             </div>
             {micWarning && phase === "recording" && (
-              <p className="rounded-md border border-yellow-400/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-200">
+              <p className={warningBannerClass}>
                 {micWarning}
               </p>
             )}
@@ -475,7 +481,7 @@ export function ExerciseFeedback({
           How you performed this exercise — then the delivery signals underneath.
         </p>
         {task?.taskReviewSource === "fallback" ? (
-          <p className="mt-2 rounded-md border border-amber-500/25 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-100">
+          <p className={`mt-2 ${warningBannerCompactClass}`}>
             Task review used a quick offline template (coach runtime unavailable or timed out). Voice scores are
             unchanged.
           </p>
@@ -521,7 +527,7 @@ export function ExerciseFeedback({
           <p className="mt-3 text-sm text-muted-foreground">No extra delivery narrative for this save.</p>
         )}
         {coach?.warning ? (
-          <p className="mt-2 flex items-start gap-1.5 text-xs text-yellow-200">
+          <p className={`mt-2 flex items-start gap-1.5 text-xs ${warningInlineClass}`}>
             <Info className="mt-0.5 size-3.5" /> {coach.warning}
           </p>
         ) : null}
@@ -547,7 +553,7 @@ export function ExerciseFeedback({
               <p className="mt-1 text-sm text-foreground/90">{task.whatWorked}</p>
             </div>
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-amber-200/90">Dial up next</p>
+              <p className={warningLabelClass}>Dial up next</p>
               <p className="mt-1 text-sm text-foreground/90">{task.whatToImprove}</p>
             </div>
           </div>
@@ -617,7 +623,7 @@ export function ExerciseFeedback({
           )}
           {coach?.improvementAreas && coach.improvementAreas.length > 0 && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-              <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-amber-300">Delivery improvements</p>
+              <p className={`mb-1 ${warningLabelClass}`}>Delivery improvements</p>
               <ul className="space-y-1 text-sm text-foreground/90">
                 {coach.improvementAreas.map((s, i) => (
                   <li key={`i${i}`}>• {s}</li>

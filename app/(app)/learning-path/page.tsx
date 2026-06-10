@@ -39,15 +39,15 @@ function NoBaselineState() {
       <CardHeader>
         <CardTitle className="text-xl">Save a baseline to unlock your week</CardTitle>
         <CardDescription>
-          Your weekly plan is generated from your six baseline scores. Record the initial assessment and we&apos;ll
-          shape six themed sessions around your weakest dimensions and stated goal.
+          Your weekly plan is generated from your six baseline scores. Finish Quick Analysis and we&apos;ll shape six
+          themed sessions around your weakest dimensions and stated goal.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Button asChild variant="glow" className="gap-2">
-          <Link href="/assessment">
+          <Link href="/quick-analysis">
             <Mic className="size-4" />
-            Start initial assessment
+            Start Quick Analysis
           </Link>
         </Button>
       </CardContent>

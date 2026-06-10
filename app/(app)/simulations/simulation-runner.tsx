@@ -18,6 +18,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { warningBannerClass } from "@/lib/ui/warning-styles";
 import { recordingValidationError, stopMediaRecorderAndBuildBlob } from "@/lib/audio/finish-recording";
 import {
   startMicLevelMonitor,
@@ -494,7 +495,7 @@ export function SimulationRunner({ init }: { init: RunnerScenarioInit }) {
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           {micWarning && subPhase === "recording" && (
-            <p className="rounded-md border border-yellow-400/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-200">
+            <p className={warningBannerClass}>
               {micWarning}
             </p>
           )}

@@ -34,15 +34,15 @@ function NoBaselineState() {
       <CardHeader>
         <CardTitle className="text-xl">Record your baseline first</CardTitle>
         <CardDescription>
-          We pick today&apos;s exercises from your two weakest dimensions. Save a baseline assessment so the pick is
+          We pick today&apos;s exercises from your two weakest dimensions. Finish Quick Analysis so the pick is
           meaningful.
         </CardDescription>
       </CardHeader>
       <CardContent>
         <Button asChild variant="glow" className="gap-2">
-          <Link href="/assessment">
+          <Link href="/quick-analysis">
             <Mic className="size-4" />
-            Start initial assessment
+            Start Quick Analysis
           </Link>
         </Button>
       </CardContent>

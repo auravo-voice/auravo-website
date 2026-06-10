@@ -21,6 +21,7 @@ import { SpokenCaption } from "./components/SpokenCaption";
 import { VoiceOrb } from "./components/VoiceOrb";
 import { WelcomeLine } from "./components/WelcomeLine";
 import { readJsonResponse } from "@/lib/api/read-json-response";
+import { warningInlineClass } from "@/lib/ui/warning-styles";
 import type { QuickAnalysisUsageSnapshot } from "@/lib/billing/quick-analysis-usage-types";
 import {
   QUICK_ANALYSIS_BUSY_MESSAGE,
@@ -60,6 +61,8 @@ type DeterministicResponse = {
 };
 
 type FullAnalysisResponse = {
+  sessionId?: string;
+  baselineSaved?: boolean;
   scores: SixDimensionScores;
   transcript: string;
   transcriptSegments: QuickAnalysisTranscriptSegment[];
@@ -218,9 +221,11 @@ async function analyzeFull(
   segmentTranscripts: string[],
   segmentServerTranscripts: string[],
   segmentServerMetaJson: string[],
+  goalId?: string | null,
 ): Promise<FullAnalysisResponse> {
   const form = new FormData();
   form.append("mode", "full");
+  if (goalId) form.append("goalId", goalId);
   for (const text of segmentTranscripts) {
     form.append("segmentTranscript", text);
   }
@@ -256,7 +261,11 @@ function promptForStep(step: QuickAnalysisStep): string | null {
   return null;
 }
 
-export function QuickAnalysisFlow() {
+type QuickAnalysisFlowProps = {
+  goalId?: string | null;
+};
+
+export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
   const { speak, stop: stopSpeaking, speaking, caption, unlockFromGesture, prefetchTts } =
     useSpeechSynthesis();
   const { recording, start: startRecording, stop: stopRecording } = useVoiceRecorder();
@@ -286,6 +295,7 @@ export function QuickAnalysisFlow() {
   const [showPaywall, setShowPaywall] = React.useState(false);
   const [startingSession, setStartingSession] = React.useState(false);
   const [midpointDone, setMidpointDone] = React.useState(false);
+  const [baselineSessionId, setBaselineSessionId] = React.useState<string | null>(null);
   const [sessionRecordingMs, setSessionRecordingMs] = React.useState(0);
   /** Browser-only STT hint — rendered after mount to avoid hydration mismatch. */
   const [clientHints, setClientHints] = React.useState<{
@@ -543,11 +553,13 @@ export function QuickAnalysisFlow() {
           segmentTranscripts,
           serverTranscripts,
           serverMetaJson,
+          goalId,
         );
         setDisplayScores(result.scores);
         setCoachSummary(result.coachSummary);
         applyTranscriptSegments(result.transcriptSegments ?? []);
         setPhoneticMap(result.phoneticMap ?? {});
+        if (typeof result.sessionId === "string") setBaselineSessionId(result.sessionId);
         setFullPath(true);
         setStep("results");
         announceStep("results");
@@ -567,7 +579,7 @@ export function QuickAnalysisFlow() {
         setAnalysisStatus(null);
       }
     },
-    [announceStep, applyTranscriptSegments],
+    [announceStep, applyTranscriptSegments, goalId],
   );
 
   const finishRecording = React.useCallback(async () => {
@@ -725,13 +737,19 @@ export function QuickAnalysisFlow() {
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-foreground">Quick Analysis</p>
-            <p className="text-xs text-muted-foreground">5-minute voice snapshot with Voca</p>
+            <p className="text-xs text-muted-foreground">
+              {usage?.needsBaseline
+                ? "Your initial spoken baseline with Voca"
+                : "5-minute voice snapshot with Voca"}
+            </p>
           </div>
           {usage ? (
             <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-primary">
-              {usage.subscribed
-                ? "Subscribed"
-                : `${usage.remainingFree} free left today`}
+              {usage.needsBaseline
+                ? "Baseline required"
+                : usage.subscribed
+                  ? "Subscribed"
+                  : `${usage.remainingFree} free left today`}
             </span>
           ) : null}
         </div>
@@ -767,7 +785,7 @@ export function QuickAnalysisFlow() {
             </div>
 
             {clientHints?.showSttWarning ? (
-              <p className="max-w-sm text-center text-xs text-amber-200/90">
+              <p className={`max-w-sm text-center text-xs ${warningInlineClass}`}>
                 Chrome or Edge recommended for live captions while you speak.
               </p>
             ) : null}
@@ -963,9 +981,21 @@ export function QuickAnalysisFlow() {
                     />
                   </div>
                 ) : null}
-                <Button variant="glow" asChild>
-                  <Link href="/dashboard">Back to Home</Link>
-                </Button>
+                {baselineSessionId ? (
+                  <p className="text-center text-sm text-muted-foreground">
+                    Baseline saved — your dashboard radar is ready.
+                  </p>
+                ) : null}
+                <div className="flex flex-wrap justify-center gap-3">
+                  <Button variant="glow" asChild>
+                    <Link href="/dashboard">Go to dashboard</Link>
+                  </Button>
+                  {baselineSessionId ? (
+                    <Button variant="outline" asChild>
+                      <Link href="/assessment/results">View full results</Link>
+                    </Button>
+                  ) : null}
+                </div>
               </>
             )}
           </div>

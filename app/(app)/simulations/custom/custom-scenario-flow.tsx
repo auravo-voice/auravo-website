@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { warningBannerClass } from "@/lib/ui/warning-styles";
 import { SimulationRunner, type RunnerScenarioInit } from "../simulation-runner";
 
 type GeneratedScenario = {
@@ -135,7 +136,7 @@ export function CustomScenarioFlow() {
           </CardContent>
         </Card>
         {warning && (
-          <p className="rounded-md border border-yellow-400/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-200">
+          <p className={warningBannerClass}>
             Coach degraded: {warning}
           </p>
         )}

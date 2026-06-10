@@ -34,5 +34,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid audience." }, { status: 400 });
   }
   const { plan, warning } = await generateMeetingPlan({ agenda, meetingType, audience, durationMin });
-  return NextResponse.json({ plan, coachWarning: warning });
+  return NextResponse.json({ plan, usedFallback: warning != null });
 }

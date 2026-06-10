@@ -1,5 +1,6 @@
 import "server-only";
 
+import { getOnboardingBaselineForUser } from "@/db/queries/baseline";
 import {
   getQuickAnalysisUsage,
   recordQuickAnalysisRun,
@@ -18,8 +19,21 @@ export class QuickAnalysisPaywallError extends Error {
   }
 }
 
+export async function getQuickAnalysisUsageForUser(userId: string): Promise<QuickAnalysisUsageSnapshot> {
+  const [usage, baseline] = await Promise.all([
+    getQuickAnalysisUsage(userId),
+    getOnboardingBaselineForUser(userId),
+  ]);
+  const needsBaseline = baseline == null;
+  return {
+    ...usage,
+    needsBaseline,
+    canStart: usage.canStart || needsBaseline,
+  };
+}
+
 export async function assertCanStartQuickAnalysis(userId: string): Promise<QuickAnalysisUsageSnapshot> {
-  const usage = await getQuickAnalysisUsage(userId);
+  const usage = await getQuickAnalysisUsageForUser(userId);
   if (!usage.canStart) {
     throw new QuickAnalysisPaywallError(usage);
   }

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { getQuickAnalysisUsage, recordQuickAnalysisRun } from "@/db/queries/sqlite/quick-analysis-usage";
+import { recordQuickAnalysisRun } from "@/db/queries/sqlite/quick-analysis-usage";
 import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
 import {
   assertCanStartQuickAnalysis,
+  getQuickAnalysisUsageForUser,
   QuickAnalysisPaywallError,
 } from "@/lib/billing/quick-analysis-entitlement";
 
@@ -16,10 +17,12 @@ export async function POST() {
   if (isAuthError(auth)) return auth;
 
   try {
-    await assertCanStartQuickAnalysis(auth);
-    await recordQuickAnalysisRun(auth);
-    const usage = await getQuickAnalysisUsage(auth);
-    return NextResponse.json({ ok: true, usage });
+    const usage = await assertCanStartQuickAnalysis(auth);
+    if (!usage.needsBaseline) {
+      await recordQuickAnalysisRun(auth);
+    }
+    const nextUsage = await getQuickAnalysisUsageForUser(auth);
+    return NextResponse.json({ ok: true, usage: nextUsage });
   } catch (e) {
     if (e instanceof QuickAnalysisPaywallError) {
       return NextResponse.json(

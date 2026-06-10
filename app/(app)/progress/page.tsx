@@ -56,14 +56,14 @@ function ProgressEmptyState() {
         <CardHeader>
           <CardTitle className="text-xl">No sessions yet</CardTitle>
           <CardDescription>
-            Record the baseline assessment to start your progress journal. Every saved session lands here with date, duration, and per-dimension scores.
+            Finish Quick Analysis to start your progress journal. Every saved session lands here with date, duration, and per-dimension scores.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row">
           <Button variant="glow" asChild className="gap-2">
-            <Link href="/assessment">
+            <Link href="/quick-analysis">
               <Mic className="size-4" />
-              Start initial assessment
+              Start Quick Analysis
             </Link>
           </Button>
         </CardContent>

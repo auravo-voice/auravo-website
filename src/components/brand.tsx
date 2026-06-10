@@ -1,26 +1,25 @@
 import { cn } from "@/lib/utils";
 
 const LOGO_SRC = "/auravo-logo.png";
-const LOGO_WIDTH = 456;
-const LOGO_HEIGHT = 244;
+const LOGO_WIDTH = 204;
+const LOGO_HEIGHT = 238;
 
 /**
- * Official auravo lockup (waveform + wordmark).
- * Uses a plain img so sizing stays predictable in flex layouts (Next/Image wrapper
- * could collapse width in some chrome breakpoints).
+ * Official Auravo mark (transparent PNG — same asset in light and dark themes).
+ * Uses a plain img so sizing stays predictable in flex layouts.
  */
 export function AuravoMark({ className }: { className?: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element -- static brand asset; avoids Image layout quirks in nav flex
     <img
       src={LOGO_SRC}
-      alt="auravo"
+      alt="Auravo"
       width={LOGO_WIDTH}
       height={LOGO_HEIGHT}
       decoding="async"
       fetchPriority="high"
       className={cn(
-        "block h-9 w-auto min-w-[4.5rem] max-w-[min(240px,72vw)] shrink-0 object-contain object-left",
+        "block h-9 w-auto min-h-9 shrink-0 object-contain object-left",
         className,
       )}
     />

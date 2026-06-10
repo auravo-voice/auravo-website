@@ -4,7 +4,8 @@ import { Suspense } from "react";
 import { AuravoMark, VocaBadge } from "@/components/brand";
 import { VoiceWaveform } from "@/components/voice-waveform";
 import { AuthForm } from "@/components/auth/login-form";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PublicPageThemeToggle } from "@/components/public-page-theme-toggle";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const metadata: Metadata = {
   title: "Create account",
@@ -14,8 +15,9 @@ export default function SignupPage() {
   return (
     <div className="relative flex min-h-dvh flex-col bg-background lg:grid lg:grid-cols-2">
       <div className="relative hidden flex-col justify-between border-r border-border/80 bg-gradient-to-br from-primary/15 via-card to-accent/10 p-10 lg:flex">
+        <PublicPageThemeToggle className="absolute right-6 top-6" />
         <div className="flex flex-wrap items-center gap-3">
-          <AuravoMark className="h-11 max-w-[min(240px,70vw)]" />
+          <AuravoMark className="h-11 w-auto" />
           <VocaBadge className="w-fit scale-90 origin-left" />
         </div>
         <AsideMiddle />
@@ -32,9 +34,6 @@ function AsideMiddle() {
       <h2 className="font-display text-3xl font-semibold leading-tight tracking-tight">
         Practice with clarity from day one.
       </h2>
-      <p className="text-sm text-muted-foreground">
-        Create an account with the same users collection as the mobile app.
-      </p>
       <VoiceWaveform className="h-16 w-56 opacity-90" />
     </div>
   );
@@ -42,11 +41,11 @@ function AsideMiddle() {
 
 function MainPanel() {
   return (
-    <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
+    <div className="relative flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
+      <PublicPageThemeToggle className="absolute right-4 top-4 sm:right-6 sm:top-6 lg:hidden" />
       <Card className="w-full max-w-md border-border/80 shadow-xl shadow-primary/5">
         <CardHeader className="space-y-1">
           <CardTitle className="font-display text-2xl">Create your account</CardTitle>
-          <CardDescription>Email and password — same auth as the Auravo app.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
           <Suspense fallback={<p className="text-sm text-muted-foreground">Loading…</p>}>

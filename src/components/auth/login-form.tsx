@@ -7,6 +7,7 @@ import { Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { notifyAuthSessionChanged } from "@/components/auth/auth-provider";
 import { OAuthButtons } from "@/components/auth/oauth-buttons";
 
 type Mode = "login" | "signup";
@@ -46,6 +47,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
         setNotice("We've sent a verification email to your inbox. Please verify before logging in.");
         return;
       }
+      notifyAuthSessionChanged();
       const redirect = searchParams.get("redirect") || "/dashboard";
       router.replace(redirect);
       router.refresh();
@@ -81,7 +83,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       />
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {notice ? (
-        <p className="rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-sm text-foreground">
+        <p className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
           {notice}
         </p>
       ) : null}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist_Mono, Montserrat } from "next/font/google";
-import { ThemeProvider } from "@/components/providers";
+import { AppProviders } from "@/components/providers";
+import { getAuthSessionSnapshot } from "@/lib/auth/session-snapshot";
 import "./globals.css";
 
 const montserrat = Montserrat({
@@ -23,17 +24,19 @@ export const metadata: Metadata = {
     "Voice-first communication coaching for interviews, meetings, and high-stakes conversations—with clear, actionable feedback.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const initialAuthSession = await getAuthSessionSnapshot();
+
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${montserrat.variable} ${geistMono.variable} min-h-dvh font-sans antialiased`}
       >
-        <ThemeProvider>{children}</ThemeProvider>
+        <AppProviders initialAuthSession={initialAuthSession}>{children}</AppProviders>
       </body>
     </html>
   );

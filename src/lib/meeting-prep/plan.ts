@@ -157,9 +157,10 @@ ${agenda}
     });
     return { plan: mapPlanResponse(data), warning: null };
   } catch (e) {
+    console.error("[meeting-prep/plan] coach fallback:", e);
     return {
       plan: FALLBACK_PLAN,
-      warning: e instanceof Error ? e.message : "Could not reach Groq.",
+      warning: "fallback",
     };
   }
 }

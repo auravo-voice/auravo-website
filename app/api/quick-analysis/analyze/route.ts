@@ -1,7 +1,16 @@
 import { NextResponse } from "next/server";
 
 import type { QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
+import {
+  AURAVO_PENDING_BASELINE_SESSION_COOKIE,
+  AURAVO_USER_ID_COOKIE,
+  auravoPendingBaselineSessionCookieOptions,
+  auravoUserIdCookieOptions,
+} from "@/lib/auth/auravo-user-cookie";
 import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+import { getOnboardingBaselineForUser } from "@/db/queries/baseline";
+import { recordQuickAnalysisRun } from "@/db/queries/sqlite/quick-analysis-usage";
+import { persistQuickAnalysisBaseline } from "@/lib/quick-analysis/persist-baseline";
 import { runDeterministicQuickAnalysis } from "@/lib/quick-analysis/deterministic-analysis";
 import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
 import { transcribeQuickAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
@@ -166,6 +175,9 @@ export async function POST(req: Request) {
       .getAll("segmentLabel")
       .map((entry) => (typeof entry === "string" ? entry.trim() : ""));
 
+    const goalRaw = form.get("goalId");
+    const goalId = typeof goalRaw === "string" && goalRaw.trim() !== "" ? goalRaw.trim() : null;
+
     const startedAt = Date.now();
     console.info("[quick-analysis/analyze] full mode started", {
       clips: blobs.length,
@@ -181,15 +193,31 @@ export async function POST(req: Request) {
           segmentServerTranscripts,
           segmentServerMetaJson,
           segmentLabels,
+          auth,
         ),
       );
+      const hadBaseline = (await getOnboardingBaselineForUser(auth)) != null;
+      const sessionId = await persistQuickAnalysisBaseline({
+        userId: auth,
+        analysis: result.analysis,
+        displayTranscript: result.transcript,
+        durationMs: result.durationMs,
+        goalId,
+        segmentCount: blobs.length,
+      });
+      if (!hadBaseline) {
+        await recordQuickAnalysisRun(auth);
+      }
       console.info("[quick-analysis/analyze] full mode ok", {
         ms: Date.now() - startedAt,
+        sessionId,
         transcriptChars: result.transcript.length,
         segmentCount: result.transcriptSegments.length,
         wordCount: result.wordConfidences.length,
       });
-      return NextResponse.json({
+      const res = NextResponse.json({
+        sessionId,
+        baselineSaved: true,
         scores: result.scores,
         transcript: result.transcript,
         transcriptSegments: result.transcriptSegments,
@@ -206,6 +234,13 @@ export async function POST(req: Request) {
           improvementAreas: result.coachSummary.improvementAreas,
         },
       });
+      res.cookies.set(AURAVO_USER_ID_COOKIE, auth, auravoUserIdCookieOptions());
+      res.cookies.set(
+        AURAVO_PENDING_BASELINE_SESSION_COOKIE,
+        sessionId,
+        auravoPendingBaselineSessionCookieOptions(),
+      );
+      return res;
     } catch (e) {
       console.error("[quick-analysis/analyze] full mode failed", {
         ms: Date.now() - startedAt,

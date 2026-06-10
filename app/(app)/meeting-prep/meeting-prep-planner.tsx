@@ -28,6 +28,11 @@ import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
+  MEETING_PREP_PLAN_FALLBACK_NOTICE,
+  meetingPrepErrorMessage,
+} from "@/lib/meeting-prep/user-messages";
+import { warningBannerLgClass } from "@/lib/ui/warning-styles";
+import {
   AUDIENCES,
   MEETING_TYPES,
   type AudienceId,
@@ -41,7 +46,7 @@ const DEFAULT_AGENDA = `- Q3 retention wins
 - Risk: EU data residency questions
 - Ask for expansion budget`;
 
-type PlanResponse = { plan: MeetingPlan; coachWarning: string | null };
+type PlanResponse = { plan: MeetingPlan; coachWarning?: string | null; usedFallback?: boolean };
 
 export function MeetingPrepPlanner() {
   const router = useRouter();
@@ -51,7 +56,7 @@ export function MeetingPrepPlanner() {
   const [durationMin, setDurationMin] = React.useState(30);
   const [difficulty, setDifficulty] = React.useState<RehearsalDifficulty>("medium");
   const [plan, setPlan] = React.useState<MeetingPlan | null>(null);
-  const [coachWarning, setCoachWarning] = React.useState<string | null>(null);
+  const [usedFallbackPlan, setUsedFallbackPlan] = React.useState(false);
 
   const [loadingPlan, setLoadingPlan] = React.useState(false);
   const [loadingStart, setLoadingStart] = React.useState<RehearsalMode | null>(null);
@@ -63,7 +68,7 @@ export function MeetingPrepPlanner() {
       return;
     }
     setError(null);
-    setCoachWarning(null);
+    setUsedFallbackPlan(false);
     setLoadingPlan(true);
     try {
       const res = await fetch("/api/meeting-prep/plan", {
@@ -73,14 +78,20 @@ export function MeetingPrepPlanner() {
       });
       const json = (await res.json()) as PlanResponse | { error?: string };
       if (!res.ok) {
-        throw new Error("error" in json && typeof json.error === "string" ? json.error : `Plan failed (${res.status})`);
+        const apiError = "error" in json && typeof json.error === "string" ? json.error : null;
+        throw new Error(meetingPrepErrorMessage(apiError, "Could not generate the plan."));
       }
       const ok = json as PlanResponse;
       setPlan(ok.plan);
-      setCoachWarning(ok.coachWarning);
+      setUsedFallbackPlan(Boolean(ok.usedFallback ?? ok.coachWarning));
     } catch (e) {
       setPlan(null);
-      setError(e instanceof Error ? e.message : "Could not generate the plan.");
+      setError(
+        meetingPrepErrorMessage(
+          e instanceof Error ? e.message : null,
+          "Could not generate the plan.",
+        ),
+      );
     } finally {
       setLoadingPlan(false);
     }
@@ -111,11 +122,18 @@ export function MeetingPrepPlanner() {
         });
         const json = (await res.json()) as { ok?: boolean; sessionId?: string; error?: string };
         if (!res.ok || !json.sessionId) {
-          throw new Error(json.error ?? `Could not start rehearsal (${res.status})`);
+          throw new Error(
+            meetingPrepErrorMessage(json.error, "Could not start the rehearsal."),
+          );
         }
         router.push(`/meeting-prep/rehearse?session=${encodeURIComponent(json.sessionId)}`);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not start the rehearsal.");
+        setError(
+          meetingPrepErrorMessage(
+            e instanceof Error ? e.message : null,
+            "Could not start the rehearsal.",
+          ),
+        );
       } finally {
         setLoadingStart(null);
       }
@@ -130,7 +148,7 @@ export function MeetingPrepPlanner() {
       return;
     }
     setError(null);
-    setCoachWarning(null);
+    setUsedFallbackPlan(false);
     setLoadingPlan(true);
     setLoadingStart("quick");
     try {
@@ -141,11 +159,12 @@ export function MeetingPrepPlanner() {
       });
       const planJson = (await res.json()) as PlanResponse | { error?: string };
       if (!res.ok) {
-        throw new Error("error" in planJson && typeof planJson.error === "string" ? planJson.error : `Plan failed (${res.status})`);
+        const apiError = "error" in planJson && typeof planJson.error === "string" ? planJson.error : null;
+        throw new Error(meetingPrepErrorMessage(apiError, "Could not generate the plan."));
       }
       const ok = planJson as PlanResponse;
       setPlan(ok.plan);
-      setCoachWarning(ok.coachWarning);
+      setUsedFallbackPlan(Boolean(ok.usedFallback ?? ok.coachWarning));
 
       const startRes = await fetch("/api/meeting-prep/start", {
         method: "POST",
@@ -162,11 +181,18 @@ export function MeetingPrepPlanner() {
       });
       const startJson = (await startRes.json()) as { ok?: boolean; sessionId?: string; error?: string };
       if (!startRes.ok || !startJson.sessionId) {
-        throw new Error(startJson.error ?? `Could not start rehearsal (${startRes.status})`);
+        throw new Error(
+          meetingPrepErrorMessage(startJson.error, "Could not start quick prep."),
+        );
       }
       router.push(`/meeting-prep/rehearse?session=${encodeURIComponent(startJson.sessionId)}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not start quick prep.");
+      setError(
+        meetingPrepErrorMessage(
+          e instanceof Error ? e.message : null,
+          "Could not start quick prep.",
+        ),
+      );
       setLoadingStart(null);
     } finally {
       setLoadingPlan(false);
@@ -208,12 +234,10 @@ export function MeetingPrepPlanner() {
           <span>{error}</span>
         </div>
       )}
-      {coachWarning && !error && (
-        <div className="flex items-start gap-2 rounded-xl border border-yellow-400/40 bg-yellow-500/10 p-3 text-sm text-yellow-200">
+      {usedFallbackPlan && !error && (
+        <div className={`flex items-start gap-2 ${warningBannerLgClass}`}>
           <AlertTriangle className="mt-0.5 size-4" />
-          <span>
-            Local coach was slow — we filled in a deterministic plan you can still edit and rehearse with. ({coachWarning})
-          </span>
+          <span>{MEETING_PREP_PLAN_FALLBACK_NOTICE}</span>
         </div>
       )}
 

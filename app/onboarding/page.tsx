@@ -4,7 +4,9 @@ import * as React from "react";
 import Link from "next/link";
 import { ArrowRight, CheckCircle2, Mic, Sparkles } from "lucide-react";
 import { ONBOARDING_GOALS } from "@/data/onboarding-goals";
+import { AuthHeaderActions } from "@/components/auth/auth-header-actions";
 import { AuravoMark, VocaBadge } from "@/components/brand";
+import { PublicPageThemeToggle } from "@/components/public-page-theme-toggle";
 import { VoiceWaveform } from "@/components/voice-waveform";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,18 +26,14 @@ export default function OnboardingPage() {
     <div className="relative flex min-h-dvh flex-col bg-background">
       <header className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-5 sm:px-6">
         <Link href="/" className="flex items-center gap-3">
-          <AuravoMark className="h-10 max-w-[min(220px,55vw)]" />
+          <AuravoMark className="h-10 w-auto sm:h-11" />
           <div className="leading-tight">
             <VocaBadge className="w-fit scale-90 origin-left" />
           </div>
         </Link>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/login">Sign in</Link>
-          </Button>
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/dashboard">Skip for now</Link>
-          </Button>
+        <div className="flex items-center gap-1">
+          <PublicPageThemeToggle />
+          <AuthHeaderActions />
         </div>
       </header>
 
@@ -94,10 +92,10 @@ export default function OnboardingPage() {
         {step === 1 && (
           <div className="space-y-6">
             <div>
-              <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">Initial assessment</h1>
+              <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">Quick Analysis</h1>
               <p className="mt-2 text-muted-foreground">
-                Five to seven minute spoken check (read-aloud, two open prompts, image description). Microphone
-                consent + resume support ship with the recording layer.
+                A five-minute voice snapshot with Voca — five short spoken prompts and a visual description. Finish the
+                full path to unlock your dashboard baseline.
               </p>
             </div>
             <Card className="border-dashed border-primary/40 bg-primary/5">
@@ -146,8 +144,8 @@ export default function OnboardingPage() {
                   Your goal shapes coaching copy after we capture a real baseline from your voice in the next step.
                 </p>
                 <Button className="w-full gap-2" size="lg" variant="glow" asChild>
-                  <Link href={goal ? `/assessment?goal=${encodeURIComponent(goal)}` : "/assessment"}>
-                    Start initial assessment
+                  <Link href={goal ? `/quick-analysis?goal=${encodeURIComponent(goal)}` : "/quick-analysis"}>
+                    Start Quick Analysis
                     <ArrowRight className="size-4" />
                   </Link>
                 </Button>

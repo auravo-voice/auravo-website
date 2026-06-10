@@ -29,6 +29,8 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { meetingPrepErrorMessage } from "@/lib/meeting-prep/user-messages";
+import { warningBadgeClass, warningBannerClass } from "@/lib/ui/warning-styles";
 import { recordingValidationError, stopMediaRecorderAndBuildBlob } from "@/lib/audio/finish-recording";
 import {
   startMicLevelMonitor,
@@ -166,7 +168,12 @@ export function MeetingRehearser({ init }: { init: RehearsalInit }) {
       const jsonRaw = await res.json();
       const json = jsonRaw as Record<string, unknown>;
       if (!res.ok) {
-        throw new Error(typeof json.error === "string" ? json.error : `Finalize failed (${res.status})`);
+        throw new Error(
+          meetingPrepErrorMessage(
+            typeof json.error === "string" ? json.error : null,
+            "Could not finalize the rehearsal.",
+          ),
+        );
       }
       const dims = Array.isArray(json.dimensions) ? (json.dimensions as RadarDimension[]) : [];
       const alignment = (json.alignment ?? {}) as ScorecardPayload["alignment"];
@@ -198,7 +205,12 @@ export function MeetingRehearser({ init }: { init: RehearsalInit }) {
       setScorecard(card);
       setPhase("done");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not finalize the rehearsal.");
+      setError(
+        meetingPrepErrorMessage(
+          e instanceof Error ? e.message : null,
+          "Could not finalize the rehearsal.",
+        ),
+      );
       setPhase("live");
     }
   }, [init.sessionId, phase]);
@@ -289,7 +301,12 @@ export function MeetingRehearser({ init }: { init: RehearsalInit }) {
       });
       const json = (await res.json()) as Record<string, unknown>;
       if (!res.ok) {
-        throw new Error(typeof json.error === "string" ? json.error : `Turn failed (${res.status})`);
+        throw new Error(
+          meetingPrepErrorMessage(
+            typeof json.error === "string" ? json.error : null,
+            "Could not save your turn. Try again.",
+          ),
+        );
       }
       const userTurn = json.userTurn as { text?: unknown } | undefined;
       const assistantTurn = json.assistantTurn as { text?: unknown; kind?: unknown } | undefined;
@@ -306,7 +323,12 @@ export function MeetingRehearser({ init }: { init: RehearsalInit }) {
       }
       setSubPhase("awaiting_user");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Turn save failed.");
+      setError(
+        meetingPrepErrorMessage(
+          e instanceof Error ? e.message : null,
+          "Could not save your turn. Try again.",
+        ),
+      );
       setSubPhase("awaiting_user");
     }
   }, [init.sessionId, teardown]);
@@ -380,7 +402,7 @@ export function MeetingRehearser({ init }: { init: RehearsalInit }) {
               {userTurnsCount} {userTurnsCount === 1 ? "turn" : "turns"}
             </Badge>
             {init.ctx.mode === "quick" && (
-              <Badge variant="outline" className="gap-1.5 border-yellow-400/40 bg-yellow-500/10 text-yellow-100">
+              <Badge variant="outline" className={`gap-1.5 ${warningBadgeClass}`}>
                 <Zap className="size-3" />
                 Quick: {Math.floor(quickRemainingMs / 1000)}s
               </Badge>
@@ -406,7 +428,7 @@ export function MeetingRehearser({ init }: { init: RehearsalInit }) {
             </div>
           )}
           {micWarning && subPhase === "recording" && (
-            <p className="rounded-md border border-yellow-400/40 bg-yellow-500/10 px-3 py-2 text-sm text-yellow-200">
+            <p className={warningBannerClass}>
               {micWarning}
             </p>
           )}

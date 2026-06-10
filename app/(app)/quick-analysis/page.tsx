@@ -3,19 +3,27 @@ import { redirect } from "next/navigation";
 
 import { QuickAnalysisFlow } from "@/app/quick-analysis/quick-analysis-flow";
 import { getAuthenticatedUserId } from "@/lib/auth/session";
+import { isOnboardingGoalId } from "@/lib/coach/dashboard";
 
 export const metadata: Metadata = {
   title: "Quick Analysis — Auravo",
-  description: "A short voice-first English snapshot with Voca — sign in required.",
+  description: "Your spoken baseline — a short voice-first snapshot with Voca.",
 };
 
 export const dynamic = "force-dynamic";
 
-export default async function QuickAnalysisPage() {
+type PageProps = { searchParams?: Promise<{ goal?: string | string[] }> };
+
+export default async function QuickAnalysisPage({ searchParams }: PageProps) {
   const userId = await getAuthenticatedUserId();
   if (!userId) {
     redirect("/login?redirect=/quick-analysis");
   }
 
-  return <QuickAnalysisFlow />;
+  const sp = searchParams ? await searchParams : {};
+  const raw = sp.goal;
+  const fromQuery = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : undefined;
+  const goalId = isOnboardingGoalId(fromQuery) ? fromQuery : null;
+
+  return <QuickAnalysisFlow goalId={goalId} />;
 }

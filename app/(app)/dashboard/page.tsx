@@ -18,6 +18,7 @@ import { getBaselineBundleForPracticeSession, getOnboardingBaselineForUser, type
 import { getUserSessionStats } from "@/db/queries/sessions";
 import { isRecordId } from "@/lib/util/is-uuid-like";
 import { ensureUserProfile } from "@/db/queries/user";
+import { DashboardGreeting } from "@/components/dashboard-greeting";
 import { SkillRadar } from "@/components/skill-radar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,22 +99,22 @@ function DashboardEmptyState({ displayName }: { displayName: string }) {
     <div className="mx-auto flex max-w-2xl flex-col gap-6 py-4">
       <header>
         <p className="text-sm font-medium text-muted-foreground">Dashboard</p>
-        <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-          Good evening, {displayName}
-        </h1>
+        <DashboardGreeting
+          displayName={displayName}
+          className="font-display text-3xl font-semibold tracking-tight sm:text-4xl"
+        />
       </header>
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Complete your initial assessment</CardTitle>
+          <CardTitle className="text-xl">Complete Quick Analysis</CardTitle>
           <CardDescription>
-            Skill scores and the radar chart only appear after you record the baseline assessment. The app stores
-            audio and transcripts locally and derives scores with deterministic heuristics—your coach model is not
-            asked to invent numbers.
+            Skill scores and the radar chart only appear after you finish the full Quick Analysis path. The app stores
+            transcripts locally and derives scores from your voice — your coach model is not asked to invent numbers.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row">
           <Button variant="glow" asChild>
-            <Link href="/assessment">Start initial assessment</Link>
+            <Link href="/quick-analysis">Start Quick Analysis</Link>
           </Button>
           <Button variant="outline" asChild>
             <Link href="/onboarding">Return to onboarding</Link>
@@ -222,9 +223,10 @@ async function DashboardCoachContent({
       <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-sm font-medium text-muted-foreground">Dashboard</p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-            Good evening, {baseline.user.displayName}
-          </h1>
+          <DashboardGreeting
+            displayName={baseline.user.displayName}
+            className="font-display text-3xl font-semibold tracking-tight sm:text-4xl"
+          />
           <Suspense fallback={<DashboardNarrativeIntroFallback />}>
             <DashboardCoachNarrativeIntro input={narrativeProps} />
           </Suspense>
@@ -302,7 +304,7 @@ async function DashboardCoachContent({
               <Link href="/assessment/results">View full baseline results</Link>
             </Button>
             <p className="text-xs text-muted-foreground">
-              Re-run the assessment from the sidebar to refresh your baseline. Scores are never invented by the chat
+              Re-run Quick Analysis from the sidebar to refresh your baseline. Scores are never invented by the chat
               model—they come from your stored session only.
             </p>
           </CardContent>

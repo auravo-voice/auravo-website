@@ -5,4 +5,6 @@ export type QuickAnalysisUsageSnapshot = {
   subscribed: boolean;
   subscriptionExpiresAt: number | null;
   canStart: boolean;
+  /** True when the learner has not saved a full-path baseline yet. */
+  needsBaseline: boolean;
 };

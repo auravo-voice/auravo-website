@@ -1,6 +1,7 @@
 "use client";
 
 import type { ConversationMetrics } from "@/lib/analysis/conversation";
+import { warningInlineClass } from "@/lib/ui/warning-styles";
 import type { VoiceDeliveryPeek } from "@/lib/analysis/finalize-scorecard-parsers";
 
 type Props = {
@@ -35,7 +36,7 @@ export function VoiceAndConversationFeedback({ voice, conversation, conversation
   return (
     <div className="space-y-4 rounded-xl border border-border/70 bg-muted/15 p-4">
       {degraded ? (
-        <p className="text-xs text-amber-200/90">
+        <p className={`text-xs ${warningInlineClass}`}>
           Parts of this run used transcript fallback; audio-grounded WPM and pause cues are stronger when transcription
           is available.
         </p>

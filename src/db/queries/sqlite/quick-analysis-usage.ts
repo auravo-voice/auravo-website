@@ -49,6 +49,7 @@ export async function getQuickAnalysisUsage(userId: string): Promise<QuickAnalys
     subscribed,
     subscriptionExpiresAt: subscription?.expiresAt ?? null,
     canStart,
+    needsBaseline: false,
   };
 }
 

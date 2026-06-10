@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ExternalLink, Menu, Mic } from "lucide-react";
+import { useAuth } from "@/components/auth/auth-provider";
 import { APP_NAV } from "@/config/nav";
 import { AuravoMark, VocaBadge } from "@/components/brand";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -41,17 +42,19 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppChrome({
   children,
-  userDisplayName = "Learner",
+  userDisplayName: userDisplayNameProp = "Learner",
 }: {
   children: React.ReactNode;
   userDisplayName?: string;
 }) {
+  const { session } = useAuth();
+  const userDisplayName = session.user?.displayName ?? userDisplayNameProp;
   const [open, setOpen] = React.useState(false);
   return (
     <div className="flex min-h-dvh w-full bg-background">
       <aside className="hidden w-64 shrink-0 border-r border-border/80 bg-card/40 backdrop-blur-xl lg:flex lg:flex-col">
         <div className="flex h-16 items-center gap-3 border-b border-border/80 px-5">
-          <AuravoMark className="h-10 max-w-[min(220px,85%)]" />
+          <AuravoMark className="h-10 w-auto" />
           <div className="flex min-w-0 flex-col justify-center">
             <VocaBadge className="w-fit scale-90 origin-left" />
           </div>
@@ -99,7 +102,7 @@ export function AppChrome({
             <SheetContent className="flex flex-col">
               <SheetHeader>
                 <SheetTitle className="flex items-center">
-                  <AuravoMark className="h-9 max-w-[200px]" />
+                  <AuravoMark className="h-9 w-auto" />
                 </SheetTitle>
               </SheetHeader>
               <Separator className="my-4" />
@@ -137,7 +140,7 @@ export function AppChrome({
             </SheetContent>
           </Sheet>
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <AuravoMark className="h-8 max-w-[min(160px,48vw)] lg:hidden" />
+            <AuravoMark className="h-8 w-auto lg:hidden" />
             <VocaBadge className="ml-auto hidden sm:inline-flex md:hidden" />
           </div>
           <Button size="sm" className="gap-1.5 shadow-primary/20" variant="glow" asChild>

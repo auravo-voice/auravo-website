@@ -2,7 +2,7 @@ import "server-only";
 
 import { rm } from "node:fs/promises";
 
-import { runAnalysis } from "@/lib/analysis/run-analysis";
+import { runAnalysis, type CanonicalAnalysis } from "@/lib/analysis/run-analysis";
 import { mergeSegmentTranscriptions } from "@/lib/assessment/merge-segment-transcriptions";
 import { getTranscriptionAdapter, TranscriptionUnavailableError } from "@/lib/transcription";
 import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
@@ -18,18 +18,18 @@ import type {
   QuickAnalysisWordConfidence,
 } from "@/app/quick-analysis/pronunciation-types";
 
-const QUICK_ANALYSIS_USER_ID = "00000000-0000-0000-0000-000000000099";
-
 /** Gap between Q3–Q5 clips when concatenating for acoustic/VAD (avoids false energy dips at joins). */
 const CONCAT_GAP_MS = 450;
 
 export type QuickAnalysisFullResult = {
-  scores: Awaited<ReturnType<typeof runAnalysis>>["scores"];
+  analysis: CanonicalAnalysis;
+  durationMs: number | null;
+  scores: CanonicalAnalysis["scores"];
   transcript: string;
   transcriptSegments: QuickAnalysisTranscriptSegment[];
   wordConfidences: QuickAnalysisWordConfidence[];
   phoneticMap: Record<string, string>;
-  coachSummary: Awaited<ReturnType<typeof runAnalysis>>["coachSummary"];
+  coachSummary: CanonicalAnalysis["coachSummary"];
 };
 
 /**
@@ -42,6 +42,7 @@ export async function runQuickAnalysisFull(
   segmentServerTranscripts?: string[],
   segmentServerMetaJson?: string[],
   segmentLabels?: string[],
+  userId?: string,
 ): Promise<QuickAnalysisFullResult> {
   if (blobs.length < 1) {
     throw new Error("At least one audio clip is required.");
@@ -87,15 +88,17 @@ export async function runQuickAnalysisFull(
     const canReuseTimings = stitched != null && (stitched.wordTimings?.length ?? 0) > 0;
     const stitchedText = segmentRows.map((s) => s.text.trim()).filter(Boolean).join("\n\n");
 
+    const totalDurationMs =
+      stitched?.durationSec != null
+        ? Math.round(stitched.durationSec * 1000 + gapSec * 1000 * Math.max(0, tempPaths.length - 1))
+        : null;
+
     const analysisStartedAt = Date.now();
     const analysis = await runAnalysis({
       audio: {
         mode: "concat",
         absolutePaths: tempPaths,
-        totalDurationMs:
-          stitched?.durationSec != null
-            ? Math.round(stitched.durationSec * 1000 + gapSec * 1000 * Math.max(0, tempPaths.length - 1))
-            : null,
+        totalDurationMs,
         gapMs: CONCAT_GAP_MS,
       },
       preTranscribed:
@@ -104,9 +107,9 @@ export async function runQuickAnalysisFull(
           : { text: stitchedText, adapter: "quick-analysis-stitch" },
       reusePreTranscription: true,
       context: {
-        userId: QUICK_ANALYSIS_USER_ID,
+        userId: userId ?? "00000000-0000-0000-0000-000000000099",
         runCoachSummary: true,
-        learnerContextHint: { displayName: "Guest" },
+        learnerContextHint: { displayName: userId ? "Learner" : "Guest" },
       },
     });
 
@@ -133,6 +136,8 @@ export async function runQuickAnalysisFull(
     const phoneticMap = await getPhoneticPronunciations(flagged);
 
     return {
+      analysis,
+      durationMs: totalDurationMs,
       scores: analysis.scores,
       transcript,
       transcriptSegments,

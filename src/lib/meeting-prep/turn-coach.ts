@@ -45,6 +45,7 @@ export async function generateRehearsalReply(input: {
         : turnIndex % 2 === 0
         ? { reply: "Quick question — what's the single most important number behind that?", kind: "question" as const }
         : { reply: "I hear it, but I'd want to see why it doesn't slip. Walk me through the risk.", kind: "pushback" as const };
-    return { ...fallback, warning: e instanceof Error ? e.message : "AI audience is unavailable." };
+    console.error("[meeting-prep/turn] coach fallback:", e);
+    return { ...fallback, warning: "fallback" };
   }
 }

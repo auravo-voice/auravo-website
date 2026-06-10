@@ -25,7 +25,7 @@ export async function AssessmentResultsBody({
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row">
           <Button variant="glow" asChild>
-            <Link href="/assessment">Start initial assessment</Link>
+            <Link href="/quick-analysis">Start Quick Analysis</Link>
           </Button>
           <Button variant="outline" asChild>
             <Link href="/dashboard">Back to dashboard</Link>

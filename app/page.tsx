@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { AuravoMark } from "@/components/brand";
+import { PublicPageThemeToggle } from "@/components/public-page-theme-toggle";
 import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
   return (
-    <main className="flex min-h-dvh flex-col items-center justify-center bg-background px-6 py-16 text-center">
+    <main className="relative flex min-h-dvh flex-col items-center justify-center bg-background px-6 py-16 text-center">
+      <PublicPageThemeToggle className="absolute right-4 top-4 sm:right-6 sm:top-6" />
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(255,102,0,0.12),transparent)]" />
       <div className="relative z-10 flex max-w-lg flex-col items-center">
-        <AuravoMark className="h-12 max-w-[min(280px,88vw)] sm:h-14" />
+        <AuravoMark className="h-16 w-auto sm:h-20" />
         <h1 className="mt-10 font-display text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl">
           Speak with clarity in the moments that matter.
         </h1>

@@ -1,3 +1,4 @@
+import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
 import type { QuickAnalysisTranscriptSegment, QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
 import type { PronunciationHighlightSource } from "@/app/quick-analysis/lib/word-highlight";
 import { flaggedWordsForPhonetics } from "@/lib/quick-analysis/word-confidences";

@@ -13,6 +13,7 @@ import { getDb } from "@/db/client";
 import { sessionTranscript } from "@/db/schema";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
 import type { AssessmentBaselinePayload } from "@/lib/assessment/baseline-results-payload";
+import { buildBaselineLayoutInput } from "@/lib/assessment/baseline-to-results-layout";
 import { buildAssessmentPayloadFromPersisted } from "@/lib/assessment/parse-baseline-payload";
 import { buildSegmentTranscriptRows } from "@/lib/assessment/segment-transcripts";
 import { listSessionSegments } from "@/db/queries/baseline-segments";
@@ -52,7 +53,7 @@ async function fetchSessionTranscript(sessionId: string): Promise<{ transcript: 
 async function loadBaselineResultsForUserUncached(
   userId: string,
   sessionId?: string | null,
-): Promise<AssessmentBaselinePayload | null> {
+): Promise<{ results: AssessmentBaselinePayload; layout: ReturnType<typeof buildBaselineLayoutInput> } | null> {
   let bundle =
     sessionId != null && sessionId.trim() !== ""
       ? await getBaselineBundleForPracticeSession(sessionId.trim())
@@ -82,7 +83,7 @@ async function loadBaselineResultsForUserUncached(
   const segmentRows = await listSessionSegments(bundle.sessionId);
   const segmentTranscripts = buildSegmentTranscriptRows(segmentRows);
 
-  return buildAssessmentPayloadFromPersisted({
+  const results = buildAssessmentPayloadFromPersisted({
     userId: bundle.user.id,
     sessionId: bundle.sessionId,
     transcript,
@@ -91,6 +92,11 @@ async function loadBaselineResultsForUserUncached(
     goalLabel,
     analysisJson,
   });
+
+  return {
+    results,
+    layout: buildBaselineLayoutInput(results, analysisJson),
+  };
 }
 
 /** Cached across navigations; baseline data changes rarely after assessment. */
@@ -98,7 +104,7 @@ export const loadBaselineResultsForUser = cache(async (userId: string, sessionId
   const sid = sessionId?.trim() || "latest";
   return unstable_cache(
     () => loadBaselineResultsForUserUncached(userId, sessionId),
-    ["baseline-results-v1", userId, sid],
+    ["baseline-results-v3", userId, sid],
     { revalidate: 120 },
   )();
 });
@@ -107,7 +113,7 @@ export const loadBaselineResultsForUser = cache(async (userId: string, sessionId
 export async function loadBaselineResultsForSession(
   sessionId: string,
   expectedUserId?: string | null,
-): Promise<AssessmentBaselinePayload | null> {
+): Promise<{ results: AssessmentBaselinePayload; layout: ReturnType<typeof buildBaselineLayoutInput> } | null> {
   const ownerId = await getPracticeSessionOwnerId(sessionId);
   if (!ownerId) return null;
   if (expectedUserId && ownerId !== expectedUserId) return null;

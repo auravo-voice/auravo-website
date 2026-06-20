@@ -1,15 +1,16 @@
 import "server-only";
 
-import type { QuickAnalysisTranscriptSegment } from "@/app/quick-analysis/pronunciation-types";
+import type { QuickAnalysisTranscriptSegment, QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
 import type { AnalysisSegmentRow } from "@/lib/quick-analysis/prepare-analysis-segment";
-import { wordConfidencesFromTimings } from "@/lib/quick-analysis/word-confidences";
+import { distributeWordConfidencesToSegments, wordConfidencesFromTimings } from "@/lib/quick-analysis/word-confidences";
 
 /** Build per-question transcript sections from prepared segment rows. */
 export function buildTranscriptSegments(
   segmentRows: AnalysisSegmentRow[],
   segmentLabels: string[],
+  allWordConfidences?: QuickAnalysisWordConfidence[],
 ): QuickAnalysisTranscriptSegment[] {
-  return segmentRows
+  const segments = segmentRows
     .map((row, i) => {
       const transcript = row.text.trim();
       if (!transcript) return null;
@@ -20,4 +21,8 @@ export function buildTranscriptSegments(
       };
     })
     .filter((s): s is QuickAnalysisTranscriptSegment => s != null);
+
+  return allWordConfidences?.length
+    ? distributeWordConfidencesToSegments(segments, allWordConfidences)
+    : segments;
 }

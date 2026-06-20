@@ -6,17 +6,24 @@ import { runAnalysis, type CanonicalAnalysis } from "@/lib/analysis/run-analysis
 import { mergeSegmentTranscriptions } from "@/lib/assessment/merge-segment-transcriptions";
 import { getTranscriptionAdapter, TranscriptionUnavailableError } from "@/lib/transcription";
 import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
+import { resolvePronunciationHighlightSource } from "@/app/quick-analysis/lib/word-highlight";
 import { prepareAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
 import {
+  distributeWordConfidencesToSegments,
+  ensureSegmentWordHighlights,
   flaggedWordsForPhonetics,
   wordConfidencesFromTimings,
 } from "@/lib/quick-analysis/word-confidences";
+import { displayWordConfidencesWithPolishedTranscript } from "@/app/quick-analysis/lib/polished-word-display";
 import { buildTranscriptSegments } from "@/lib/quick-analysis/transcript-segments";
-import { polishTranscriptForDisplay } from "@/lib/transcription/polish-transcript-display";
+import { grammarSnapshotFromAnalysis } from "@/lib/quick-analysis/grammar-snapshot";
+import type { QuickAnalysisGrammarSnapshot } from "@/lib/quick-analysis/grammar-snapshot";
+import { polishTranscriptSegmentsForDisplay } from "@/lib/transcription/polish-transcript-display";
 import type {
   QuickAnalysisTranscriptSegment,
   QuickAnalysisWordConfidence,
 } from "@/app/quick-analysis/pronunciation-types";
+import type { PronunciationHighlightSource } from "@/app/quick-analysis/lib/word-highlight";
 
 /** Gap between Q3–Q5 clips when concatenating for acoustic/VAD (avoids false energy dips at joins). */
 const CONCAT_GAP_MS = 450;
@@ -29,6 +36,8 @@ export type QuickAnalysisFullResult = {
   transcriptSegments: QuickAnalysisTranscriptSegment[];
   wordConfidences: QuickAnalysisWordConfidence[];
   phoneticMap: Record<string, string>;
+  pronunciationHighlightSource: PronunciationHighlightSource;
+  grammar: QuickAnalysisGrammarSnapshot;
   coachSummary: CanonicalAnalysis["coachSummary"];
 };
 
@@ -123,17 +132,57 @@ export async function runQuickAnalysisFull(
       segmentLabels?.length === segmentRows.length
         ? segmentLabels
         : segmentRows.map((_, i) => `Question ${i + 1}`);
-    const transcriptSegments = buildTranscriptSegments(segmentRows, labels);
-    const rawTranscript = stitchedText;
     const wordConfidences = wordConfidencesFromTimings(analysis.voice.wordTimings ?? undefined);
-    const flagged = flaggedWordsForPhonetics(wordConfidences);
+    let transcriptSegments = buildTranscriptSegments(segmentRows, labels, wordConfidences);
 
-    const transcript = await polishTranscriptForDisplay(rawTranscript);
+    const globalWords =
+      wordConfidences.length > 0
+        ? wordConfidences
+        : transcriptSegments.flatMap((s) => s.wordConfidences);
+    if (
+      globalWords.length > 0 &&
+      transcriptSegments.some((s) => s.transcript.trim().length > 0 && s.wordConfidences.length === 0)
+    ) {
+      transcriptSegments = distributeWordConfidencesToSegments(
+        transcriptSegments.map((s) => ({ ...s, wordConfidences: [] })),
+        globalWords,
+        { force: true },
+      );
+    }
+
+    const polishedSegments = await polishTranscriptSegmentsForDisplay(transcriptSegments);
+    transcriptSegments = transcriptSegments.map((segment, i) => {
+      const polishedText = polishedSegments[i]?.transcript ?? segment.transcript;
+      return {
+        ...segment,
+        transcript: polishedText,
+        wordConfidences: displayWordConfidencesWithPolishedTranscript(
+          segment.wordConfidences,
+          polishedText,
+        ),
+      };
+    });
+    const sessionWordConfidences =
+      wordConfidences.length > 0
+        ? wordConfidences
+        : transcriptSegments.flatMap((s) => s.wordConfidences);
+    transcriptSegments = ensureSegmentWordHighlights(transcriptSegments, sessionWordConfidences);
+    const flagged = flaggedWordsForPhonetics(sessionWordConfidences);
+
+    const transcript = transcriptSegments
+      .map((s) => s.transcript.trim())
+      .filter(Boolean)
+      .join("\n\n");
 
     // Brief pause so Groq TPM can recover after runAnalysis grammar/vocab/coach batch.
     await new Promise((resolve) => setTimeout(resolve, 500));
 
     const phoneticMap = await getPhoneticPronunciations(flagged);
+    const pronunciationHighlightSource = resolvePronunciationHighlightSource(
+      phoneticMap,
+      flagged.length,
+    );
+    const grammar = grammarSnapshotFromAnalysis(analysis);
 
     return {
       analysis,
@@ -141,8 +190,10 @@ export async function runQuickAnalysisFull(
       scores: analysis.scores,
       transcript,
       transcriptSegments,
-      wordConfidences,
+      wordConfidences: sessionWordConfidences,
       phoneticMap,
+      pronunciationHighlightSource,
+      grammar,
       coachSummary: analysis.coachSummary,
     };
   } finally {

@@ -306,9 +306,9 @@ export function PracticeRunner({ prompts, baselineAverage }: Props) {
                 <ArrowRight className="size-4" />
               </Link>
             </Button>
-            <Button asChild variant="outline">
+            {/* <Button asChild variant="outline">
               <Link href="/progress">See progress journal</Link>
-            </Button>
+            </Button> */}
           </div>
         </CardContent>
       </Card>

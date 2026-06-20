@@ -10,6 +10,8 @@ type Props = {
   stepLabel?: string;
   /** Shown as live caption while coach speaks — not as a static heading. */
   spokenPrompt: string;
+  /** Optional hints for the learner (e.g. Q1 answer starters). */
+  answerStarters?: readonly string[];
   coachSpeaking?: boolean;
   recording: boolean;
   analyzing?: boolean;
@@ -22,6 +24,7 @@ type Props = {
 export function QuestionStep({
   stepLabel,
   spokenPrompt,
+  answerStarters,
   coachSpeaking = false,
   recording,
   analyzing = false,
@@ -43,6 +46,24 @@ export function QuestionStep({
         text={coachSpeaking ? spokenPrompt : recording ? "Listening…" : analyzing ? analysisStatus ?? "Analyzing…" : spokenPrompt}
         hint={coachSpeaking ? "Auravo coach" : recording ? "Your turn" : analyzing ? "Processing" : "Ready when you are"}
       />
+
+      {answerStarters && answerStarters.length > 0 && !recording && !analyzing ? (
+        <div className="w-full max-w-lg rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Ideas to get started
+          </p>
+          <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+            {answerStarters.map((starter) => (
+              <li key={starter} className="flex gap-2">
+                <span className="text-primary" aria-hidden="true">
+                  ·
+                </span>
+                <span>{starter}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {children}
 

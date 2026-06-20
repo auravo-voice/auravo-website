@@ -6,7 +6,7 @@ import { DashboardBaselineHandoffBootstrap } from "./dashboard-baseline-handoff-
 import { DashboardCoachNarrativeIntro, DashboardCoachNarrativeTodaySession } from "./dashboard-coach-narrative";
 import { DashboardFreshLoad } from "./dashboard-fresh-load";
 import { DashboardSessionUrlCleanup } from "./dashboard-session-url-cleanup";
-import { ArrowRight, Flame, Keyboard, Play } from "lucide-react";
+import { Flame, Keyboard, Play } from "lucide-react";
 import type { OnboardingGoalId } from "@/lib/coach/dashboard";
 import { getOnboardingGoalLabel, isOnboardingGoalId } from "@/lib/coach/dashboard";
 import { scoresToRadarDimensions } from "@/lib/assessment/dimensions-from-scores";
@@ -268,12 +268,12 @@ async function DashboardCoachContent({
                     Start today&apos;s practice
                   </Link>
                 </Button>
-                <Button size="lg" variant="outline" className="gap-2" asChild>
+                {/* <Button size="lg" variant="outline" className="gap-2" asChild>
                   <Link href="/meeting-prep">
                     Meeting prep
                     <ArrowRight className="size-4" />
                   </Link>
-                </Button>
+                </Button> */}
               </div>
             </div>
             <SkillRadar dimensions={ordered} className="mx-auto w-full max-w-[280px] opacity-95" />
@@ -284,7 +284,7 @@ async function DashboardCoachContent({
           <CardHeader>
             <CardTitle className="text-lg">Skill mix</CardTitle>
             <CardDescription>
-              Six dimensions from your saved initial assessment (heuristic MVP scoring from transcript text).
+              Six dimensions from your saved initial assessment.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -304,8 +304,7 @@ async function DashboardCoachContent({
               <Link href="/assessment/results">View full baseline results</Link>
             </Button>
             <p className="text-xs text-muted-foreground">
-              Re-run Quick Analysis from the sidebar to refresh your baseline. Scores are never invented by the chat
-              model—they come from your stored session only.
+              Re-run Quick Analysis from the sidebar to refresh your baseline.
             </p>
           </CardContent>
         </Card>
@@ -317,7 +316,7 @@ async function DashboardCoachContent({
             <p className="text-xs font-semibold uppercase tracking-wide text-primary">Quick win</p>
             <p className="font-display text-lg font-semibold">Try today&apos;s vocabulary challenge</p>
             <p className="text-sm text-muted-foreground">
-              Auravord — same five-letter answer for everyone each day. Type any valid English word to guess.
+              Auravord — same five-letter answer for everyone each day. You get six guesses.
             </p>
           </div>
           <Button variant="outline" className="shrink-0 gap-2 sm:min-w-[11rem]" asChild>

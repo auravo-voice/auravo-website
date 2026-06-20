@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { CoachInsightCards } from "@/components/coach-insight-cards";
 import { Button } from "@/components/ui/button";
 import { VisualPromptScene } from "@/app/(app)/assessment/visual-prompt-scene";
 import type {
@@ -13,15 +12,20 @@ import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import { QuickAnalysisPaywall } from "./components/QuickAnalysisPaywall";
-import { PronunciationTranscript } from "./components/PronunciationTranscript";
+import { AnalysisResultsLayout } from "./components/AnalysisResultsLayout";
 import { DemoAmbient } from "./components/DemoAmbient";
 import { QuestionStep } from "./components/QuestionStep";
-import { RadarSnapshot } from "./components/RadarSnapshot";
 import { SpokenCaption } from "./components/SpokenCaption";
 import { VoiceOrb } from "./components/VoiceOrb";
 import { WelcomeLine } from "./components/WelcomeLine";
+import { displayWordConfidencesWithPolishedTranscript } from "@/app/quick-analysis/lib/polished-word-display";
+import type { PronunciationHighlightSource } from "@/app/quick-analysis/lib/word-highlight";
 import { readJsonResponse } from "@/lib/api/read-json-response";
+import { ensureSegmentWordHighlights } from "@/lib/quick-analysis/word-confidences";
+import { validateSpokenAnswer } from "@/lib/quick-analysis/validate-spoken-answer";
 import { warningInlineClass } from "@/lib/ui/warning-styles";
+import { cn } from "@/lib/utils";
+import type { QuickAnalysisGrammarSnapshot } from "@/lib/quick-analysis/grammar-snapshot";
 import type { QuickAnalysisUsageSnapshot } from "@/lib/billing/quick-analysis-usage-types";
 import {
   QUICK_ANALYSIS_BUSY_MESSAGE,
@@ -29,10 +33,11 @@ import {
 } from "@/lib/quick-analysis/constants";
 import {
   ANALYSIS_QUESTION_KEYS,
-  Q3_ANALYSIS_SEGMENT_INDEX,
+  Q1_ANSWER_STARTERS,
   QUESTION_SEGMENT_LABELS,
   QUESTIONS,
   STEP_PROGRESS,
+  stepProgressLabel,
   WELCOME_LINES,
   WELCOME_SPEECH,
 } from "./copy";
@@ -68,6 +73,8 @@ type FullAnalysisResponse = {
   transcriptSegments: QuickAnalysisTranscriptSegment[];
   wordConfidences: QuickAnalysisWordConfidence[];
   phoneticMap: Record<string, string>;
+  pronunciationHighlightSource?: PronunciationHighlightSource;
+  grammar: QuickAnalysisGrammarSnapshot;
   coachSummary: {
     biggestIssue: string | null;
     strength: string | null;
@@ -211,6 +218,60 @@ async function fetchPhoneticMap(
   }
 }
 
+function enrichTranscriptSegments(
+  segments: QuickAnalysisTranscriptSegment[],
+  allWords: QuickAnalysisWordConfidence[],
+): QuickAnalysisTranscriptSegment[] {
+  if (segments.length === 0) return segments;
+
+  let enriched =
+    allWords.length > 0 ? ensureSegmentWordHighlights(segments, allWords) : segments;
+
+  return enriched.map((segment) => ({
+    ...segment,
+    wordConfidences: displayWordConfidencesWithPolishedTranscript(
+      segment.wordConfidences,
+      segment.transcript,
+    ),
+  }));
+}
+
+async function fetchPolishedSegments(
+  segments: QuickAnalysisTranscriptSegment[],
+): Promise<QuickAnalysisTranscriptSegment[] | null> {
+  if (segments.length === 0) return null;
+  try {
+    const res = await fetch("/api/quick-analysis/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: "polish-segments", segments }),
+    });
+    const data = await readJsonResponse(res);
+    if (!res.ok || !Array.isArray(data.segments)) return null;
+    return data.segments as QuickAnalysisTranscriptSegment[];
+  } catch {
+    return null;
+  }
+}
+
+function mergePolishedSegments(
+  original: QuickAnalysisTranscriptSegment[],
+  polished: QuickAnalysisTranscriptSegment[],
+): QuickAnalysisTranscriptSegment[] {
+  return original.map((seg, i) => {
+    const next = polished[i];
+    if (!next?.transcript.trim()) return seg;
+    return {
+      ...seg,
+      transcript: next.transcript,
+      wordConfidences: displayWordConfidencesWithPolishedTranscript(
+        seg.wordConfidences,
+        next.transcript,
+      ),
+    };
+  });
+}
+
 function segmentLabelForIndex(index: number): string {
   const key = ANALYSIS_QUESTION_KEYS[index];
   return key ? QUESTION_SEGMENT_LABELS[key] : `Question ${index + 1}`;
@@ -285,6 +346,11 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
   const [coachSummary, setCoachSummary] = React.useState<FullAnalysisResponse["coachSummary"] | null>(null);
   const [wordConfidences, setWordConfidences] = React.useState<QuickAnalysisWordConfidence[]>([]);
   const [phoneticMap, setPhoneticMap] = React.useState<Record<string, string>>({});
+  const [pronunciationHighlightSource, setPronunciationHighlightSource] =
+    React.useState<PronunciationHighlightSource>("groq");
+  const [grammarFeedback, setGrammarFeedback] = React.useState<QuickAnalysisGrammarSnapshot | null>(
+    null,
+  );
   const [analyzing, setAnalyzing] = React.useState(false);
   const [analysisStatus, setAnalysisStatus] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -311,6 +377,21 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
   const recordingStartedAtRef = React.useRef<number | null>(null);
   const browserSttRef = React.useRef(browserStt);
   browserSttRef.current = browserStt;
+  /** Sync refs so midpoint loader sees Q3 before React state commits. */
+  const analysisBlobsRef = React.useRef<Blob[]>([]);
+  const analysisSegmentTranscriptsRef = React.useRef<string[]>([]);
+
+  React.useEffect(() => {
+    analysisBlobsRef.current = analysisBlobs;
+    analysisSegmentTranscriptsRef.current = analysisSegmentTranscripts;
+  }, [analysisBlobs, analysisSegmentTranscripts]);
+
+  const syncAnalysisClips = React.useCallback((blobs: Blob[], transcripts: string[]) => {
+    analysisBlobsRef.current = blobs;
+    analysisSegmentTranscriptsRef.current = transcripts;
+    setAnalysisBlobs(blobs);
+    setAnalysisSegmentTranscripts(transcripts);
+  }, []);
 
   React.useEffect(() => {
     setMounted(true);
@@ -432,38 +513,40 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
     setStep(next);
   }, []);
 
-  const applyTranscriptSegments = React.useCallback((segments: QuickAnalysisTranscriptSegment[]) => {
-    const filtered = segments.filter((s) => s.transcript.length > 0 || s.wordConfidences.length > 0);
-    setTranscriptSegments(filtered);
-    const allWords = filtered.flatMap((s) => s.wordConfidences);
-    setWordConfidences(allWords);
-    if (allWords.length > 0) {
-      void fetchPhoneticMap(allWords).then(setPhoneticMap);
-    }
-  }, []);
-
-  const loadMidpointTranscriptSegments = React.useCallback(async () => {
-    const segments: QuickAnalysisTranscriptSegment[] = [];
-    for (let i = 0; i <= Q3_ANALYSIS_SEGMENT_INDEX && i < analysisBlobs.length; i++) {
-      const prefetched = await ensureSegmentPrefetch(
-        i,
-        analysisBlobs[i]!,
-        analysisSegmentTranscripts[i] ?? "",
+  const applyTranscriptSegments = React.useCallback(
+    (
+      segments: QuickAnalysisTranscriptSegment[],
+      options?: {
+        skipPolish?: boolean;
+        allWords?: QuickAnalysisWordConfidence[];
+        phoneticMap?: Record<string, string>;
+      },
+    ) => {
+      const enriched = enrichTranscriptSegments(segments, options?.allWords ?? []);
+      const filtered = enriched.filter(
+        (s) => s.transcript.length > 0 || s.wordConfidences.length > 0,
       );
-      if (!prefetched?.transcript) continue;
-      segments.push({
-        label: segmentLabelForIndex(i),
-        transcript: prefetched.transcript,
-        wordConfidences: prefetched.wordConfidences,
+      setTranscriptSegments(filtered);
+      const allWords = filtered.flatMap((s) => s.wordConfidences);
+      setWordConfidences(allWords);
+
+      if (options?.phoneticMap !== undefined) {
+        setPhoneticMap(options.phoneticMap);
+      } else if (allWords.length > 0) {
+        void fetchPhoneticMap(allWords).then(setPhoneticMap);
+      }
+
+      if (options?.skipPolish) return;
+      void fetchPolishedSegments(filtered).then((polished) => {
+        if (!polished?.length) return;
+        const merged = mergePolishedSegments(filtered, polished);
+        const mergedEnriched = enrichTranscriptSegments(merged, options?.allWords ?? allWords);
+        setTranscriptSegments(mergedEnriched);
+        setWordConfidences(mergedEnriched.flatMap((s) => s.wordConfidences));
       });
-    }
-    applyTranscriptSegments(segments);
-  }, [
-    analysisBlobs,
-    analysisSegmentTranscripts,
-    applyTranscriptSegments,
-    ensureSegmentPrefetch,
-  ]);
+    },
+    [],
+  );
 
   const scoreMidpointFromQ3 = React.useCallback(
     async (q3Index: number, q3Transcript: string, q3Blob: Blob) => {
@@ -486,16 +569,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
           setAnalyzing(false);
           setAnalysisStatus(null);
           goNextAfterQuestion("midpoint");
-          void segmentPromise.then((result) => {
-            if (!result?.transcript) return;
-            applyTranscriptSegments([
-              {
-                label: segmentLabelForIndex(q3Index),
-                transcript: result.transcript,
-                wordConfidences: result.wordConfidences,
-              },
-            ]);
-          });
+          void segmentPromise;
         } else {
           const segmentResult = await segmentPromise;
           if (!segmentResult?.transcript) {
@@ -506,13 +580,6 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
           const scoreResult = await scoreFromTranscript(segmentResult.transcript);
           setMidpointScores(scoreResult.scores);
           setDisplayScores(scoreResult.scores);
-          applyTranscriptSegments([
-            {
-              label: segmentLabelForIndex(q3Index),
-              transcript: segmentResult.transcript,
-              wordConfidences: segmentResult.wordConfidences,
-            },
-          ]);
           goNextAfterQuestion("midpoint");
         }
       } catch (e) {
@@ -534,7 +601,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
         setAnalysisStatus(null);
       }
     },
-    [applyTranscriptSegments, browserStt.supported, ensureSegmentPrefetch, goNextAfterQuestion],
+    [browserStt.supported, ensureSegmentPrefetch, goNextAfterQuestion],
   );
 
   const runFullAnalysis = React.useCallback(
@@ -557,8 +624,13 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
         );
         setDisplayScores(result.scores);
         setCoachSummary(result.coachSummary);
-        applyTranscriptSegments(result.transcriptSegments ?? []);
-        setPhoneticMap(result.phoneticMap ?? {});
+        applyTranscriptSegments(result.transcriptSegments ?? [], {
+          skipPolish: true,
+          allWords: result.wordConfidences ?? [],
+          phoneticMap: result.phoneticMap ?? {},
+        });
+        setPronunciationHighlightSource(result.pronunciationHighlightSource ?? "groq");
+        setGrammarFeedback(result.grammar ?? null);
         if (typeof result.sessionId === "string") setBaselineSessionId(result.sessionId);
         setFullPath(true);
         setStep("results");
@@ -584,55 +656,70 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
 
   const finishRecording = React.useCallback(async () => {
     clearMaxDuration();
+    const clipRecordingMs =
+      recordingStartedAtRef.current != null
+        ? Date.now() - recordingStartedAtRef.current
+        : 0;
     if (recordingStartedAtRef.current != null) {
-      totalRecordingMsRef.current += Date.now() - recordingStartedAtRef.current;
+      totalRecordingMsRef.current += clipRecordingMs;
       recordingStartedAtRef.current = null;
       setSessionRecordingMs(totalRecordingMsRef.current);
     }
     try {
       const [blob, browserTranscript] = await Promise.all([stopRecording(), browserStt.stop()]);
 
+      const spokenError = validateSpokenAnswer(blob, browserTranscript, clipRecordingMs);
+      if (spokenError) {
+        totalRecordingMsRef.current = Math.max(0, totalRecordingMsRef.current - clipRecordingMs);
+        setSessionRecordingMs(totalRecordingMsRef.current);
+        setError(spokenError);
+        return;
+      }
+
       if (step === "q1_city") {
-        const q1Index = analysisBlobs.length;
-        setAnalysisBlobs((prev) => [...prev, blob]);
-        setAnalysisSegmentTranscripts((prev) => [...prev, browserTranscript.trim()]);
+        const q1Index = analysisBlobsRef.current.length;
+        const nextBlobs = [...analysisBlobsRef.current, blob];
+        const nextTranscripts = [...analysisSegmentTranscriptsRef.current, browserTranscript.trim()];
+        syncAnalysisClips(nextBlobs, nextTranscripts);
         warmSegmentTranscription(q1Index, blob, browserTranscript.trim());
         setError(null);
         goNextAfterQuestion("q2_duration");
         return;
       }
       if (step === "q2_duration") {
-        const q2Index = analysisBlobs.length;
-        setAnalysisBlobs((prev) => [...prev, blob]);
-        setAnalysisSegmentTranscripts((prev) => [...prev, browserTranscript.trim()]);
+        const q2Index = analysisBlobsRef.current.length;
+        const nextBlobs = [...analysisBlobsRef.current, blob];
+        const nextTranscripts = [...analysisSegmentTranscriptsRef.current, browserTranscript.trim()];
+        syncAnalysisClips(nextBlobs, nextTranscripts);
         warmSegmentTranscription(q2Index, blob, browserTranscript.trim());
         setError(null);
         goNextAfterQuestion("q3_about_city");
         return;
       }
       if (step === "q3_about_city") {
-        const q3Index = Q3_ANALYSIS_SEGMENT_INDEX;
-        setAnalysisBlobs((prev) => [...prev, blob]);
-        setAnalysisSegmentTranscripts((prev) => [...prev, browserTranscript.trim()]);
+        const q3Index = analysisBlobsRef.current.length;
+        const nextBlobs = [...analysisBlobsRef.current, blob];
+        const nextTranscripts = [...analysisSegmentTranscriptsRef.current, browserTranscript.trim()];
+        syncAnalysisClips(nextBlobs, nextTranscripts);
         warmSegmentTranscription(q3Index, blob, browserTranscript.trim());
         await scoreMidpointFromQ3(q3Index, browserTranscript, blob);
         return;
       }
       if (step === "q4_objects") {
-        const q4Index = analysisBlobs.length;
-        setAnalysisBlobs((prev) => [...prev, blob]);
-        setAnalysisSegmentTranscripts((prev) => [...prev, browserTranscript.trim()]);
+        const q4Index = analysisBlobsRef.current.length;
+        const nextBlobs = [...analysisBlobsRef.current, blob];
+        const nextTranscripts = [...analysisSegmentTranscriptsRef.current, browserTranscript.trim()];
+        syncAnalysisClips(nextBlobs, nextTranscripts);
         warmSegmentTranscription(q4Index, blob, browserTranscript.trim());
         setError(null);
         goNextAfterQuestion("q5_visual");
         return;
       }
       if (step === "q5_visual") {
-        const transcriptsForAnalysis = [...analysisSegmentTranscripts, browserTranscript.trim()];
-        const blobsForAnalysis = [...analysisBlobs, blob];
-        const q5Index = blobsForAnalysis.length - 1;
-        setAnalysisBlobs(blobsForAnalysis);
-        setAnalysisSegmentTranscripts(transcriptsForAnalysis);
+        const nextBlobs = [...analysisBlobsRef.current, blob];
+        const nextTranscripts = [...analysisSegmentTranscriptsRef.current, browserTranscript.trim()];
+        syncAnalysisClips(nextBlobs, nextTranscripts);
+        const q5Index = nextBlobs.length - 1;
         setError(null);
         setAnalyzing(true);
         setAnalysisStatus("Running full analysis…");
@@ -641,16 +728,30 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
         warmSegmentTranscription(q5Index, blob, browserTranscript.trim());
 
         const prefetched = await Promise.all(
-          blobsForAnalysis.map((segmentBlob, i) =>
-            ensureSegmentPrefetch(i, segmentBlob, transcriptsForAnalysis[i] ?? ""),
+          nextBlobs.map((segmentBlob, i) =>
+            ensureSegmentPrefetch(i, segmentBlob, nextTranscripts[i] ?? ""),
           ),
         );
         const serverForAnalysis = prefetched.map((r) => r?.transcript ?? "");
         const metaForAnalysis = prefetched.map((r) => r?.transcriptMetaJson ?? "");
 
+        if (serverForAnalysis.some((t) => !t.trim())) {
+          syncAnalysisClips(
+            analysisBlobsRef.current.slice(0, -1),
+            analysisSegmentTranscriptsRef.current.slice(0, -1),
+          );
+          setAnalyzing(false);
+          setAnalysisStatus(null);
+          setStep("q5_visual");
+          setError(
+            "We couldn't transcribe one of your answers. Please re-record any question where you didn't speak clearly.",
+          );
+          return;
+        }
+
         await runFullAnalysis(
-          blobsForAnalysis,
-          transcriptsForAnalysis,
+          nextBlobs,
+          nextTranscripts,
           serverForAnalysis,
           metaForAnalysis,
         );
@@ -661,8 +762,6 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
       setAnalysisStatus(null);
     }
   }, [
-    analysisBlobs,
-    analysisSegmentTranscripts,
     ensureSegmentPrefetch,
     browserStt,
     clearMaxDuration,
@@ -672,6 +771,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
     scoreMidpointFromQ3,
     step,
     stopRecording,
+    syncAnalysisClips,
   ]);
 
   const onToggleRecord = React.useCallback(() => {
@@ -708,6 +808,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
   const stepProgress = STEP_PROGRESS[step];
   const coachSpeaking = speaking && step !== "welcome";
   const welcomeLinesActive = mounted && (speaking || welcomeReady);
+  const wideResultsLayout = step === "results" || step === "midpoint";
 
   if (showPaywall) {
     return (
@@ -733,7 +834,12 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
     <div className="relative flex w-full flex-col items-center overflow-hidden px-1 py-4 sm:px-2">
       <DemoAmbient />
 
-      <div className="relative z-10 flex w-full max-w-2xl flex-col items-center gap-8">
+      <div
+        className={cn(
+          "relative z-10 flex w-full flex-col items-center gap-8",
+          wideResultsLayout ? "max-w-6xl px-2 sm:px-4" : "max-w-2xl",
+        )}
+      >
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-foreground">Quick Analysis</p>
@@ -747,9 +853,11 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
             <span className="rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[0.65rem] font-semibold uppercase tracking-[0.16em] text-primary">
               {usage.needsBaseline
                 ? "Baseline required"
-                : usage.subscribed
-                  ? "Subscribed"
-                  : `${usage.remainingFree} free left today`}
+                : usage.isAdmin
+                  ? "Admin · unlimited"
+                  : usage.subscribed
+                    ? "Subscribed"
+                    : `${usage.remainingFree} free left today`}
             </span>
           ) : null}
         </div>
@@ -847,8 +955,9 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
 
         {step === "q1_city" ? (
           <QuestionStep
-            stepLabel={`Question ${STEP_PROGRESS.q1_city.current}`}
+            stepLabel={stepProgressLabel("q1_city")}
             spokenPrompt={QUESTIONS.q1_city}
+            answerStarters={Q1_ANSWER_STARTERS}
             coachSpeaking={coachSpeaking}
             recording={recording}
             onToggleRecord={onToggleRecord}
@@ -857,7 +966,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
 
         {step === "q2_duration" ? (
           <QuestionStep
-            stepLabel={`Question ${STEP_PROGRESS.q2_duration.current}`}
+            stepLabel={stepProgressLabel("q2_duration")}
             spokenPrompt={QUESTIONS.q2_duration}
             coachSpeaking={coachSpeaking}
             recording={recording}
@@ -867,7 +976,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
 
         {step === "q3_about_city" ? (
           <QuestionStep
-            stepLabel={`Question ${STEP_PROGRESS.q3_about_city.current}`}
+            stepLabel={stepProgressLabel("q3_about_city")}
             spokenPrompt={QUESTIONS.q3_about_city}
             coachSpeaking={coachSpeaking}
             recording={recording}
@@ -878,57 +987,56 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
         ) : null}
 
         {step === "midpoint" ? (
-          <div className="flex w-full flex-col items-center gap-8">
-            <VoiceOrb mode={coachSpeaking ? "speaking" : "idle"} />
-            <SpokenCaption text={caption ?? QUESTIONS.midpoint} hint="Checkpoint" />
-            <RadarSnapshot
-              scores={scoresForDisplay}
-              caption="Your snapshot so far — from your city description."
-              className="rounded-3xl border border-white/10 bg-card/30 p-6 backdrop-blur-md"
-            />
-            {!midpointDone ? (
-              <div className="flex flex-wrap justify-center gap-3">
-                <Button
-                  variant="glow"
-                  disabled={coachSpeaking}
-                  onClick={() => {
-                    setFullPath(true);
-                    spokeRef.current = null;
-                    setStep("q4_objects");
-                  }}
-                >
-                  Yes, continue
-                </Button>
-                <Button
-                  variant="outline"
-                  disabled={coachSpeaking}
-                  onClick={() => {
-                    void speak(QUESTIONS.thank_you_no);
-                    setMidpointDone(true);
-                    void loadMidpointTranscriptSegments();
-                  }}
-                >
-                  No thanks
-                </Button>
-              </div>
-            ) : (
-              <Button variant="glow" asChild>
-                <Link href="/dashboard">Back to Home</Link>
-              </Button>
-            )}
-            {transcriptSegments.length > 0 ? (
-              <PronunciationTranscript
-                segments={transcriptSegments}
-                phoneticMap={phoneticMap}
-                className="w-full"
-              />
+          <>
+            {coachSpeaking ? (
+              <SpokenCaption text={caption ?? QUESTIONS.midpoint} hint="Checkpoint" className="w-full" />
             ) : null}
-          </div>
+            <AnalysisResultsLayout
+            scores={scoresForDisplay}
+            transcriptSegments={[]}
+            phoneticMap={{}}
+            showTranscript={false}
+            subtitle="Your basic snapshot so far"
+            footer={
+              !midpointDone ? (
+                <div className="flex flex-wrap justify-center gap-3 pt-2">
+                  <Button
+                    variant="glow"
+                    disabled={coachSpeaking}
+                    onClick={() => {
+                      setFullPath(true);
+                      spokeRef.current = null;
+                      setStep("q4_objects");
+                    }}
+                  >
+                    Yes, continue
+                  </Button>
+                  <Button
+                    variant="outline"
+                    disabled={coachSpeaking}
+                    onClick={() => {
+                      void speak(QUESTIONS.thank_you_no);
+                      setMidpointDone(true);
+                    }}
+                  >
+                    No thanks
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex justify-center pt-2">
+                  <Button variant="glow" asChild>
+                    <Link href="/dashboard">Back to Home</Link>
+                  </Button>
+                </div>
+              )
+            }
+          />
+          </>
         ) : null}
 
         {step === "q4_objects" ? (
           <QuestionStep
-            stepLabel={`Question ${STEP_PROGRESS.q4_objects.current}`}
+            stepLabel={stepProgressLabel("q4_objects")}
             spokenPrompt={QUESTIONS.q4_objects}
             coachSpeaking={coachSpeaking}
             recording={recording}
@@ -938,7 +1046,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
 
         {step === "q5_visual" ? (
           <QuestionStep
-            stepLabel={`Question ${STEP_PROGRESS.q5_visual.current}`}
+            stepLabel={stepProgressLabel("q5_visual")}
             spokenPrompt={QUESTIONS.q5_visual}
             coachSpeaking={coachSpeaking}
             recording={recording}
@@ -951,54 +1059,18 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
         ) : null}
 
         {step === "results" ? (
-          <div className="flex w-full flex-col items-center gap-8">
-            <VoiceOrb mode={analyzing ? "thinking" : coachSpeaking ? "speaking" : "idle"} />
-            <SpokenCaption
-              text={analyzing ? analysisStatus : caption ?? "Your English snapshot"}
-              hint={analyzing ? "Analyzing" : "Results"}
-            />
-            {analyzing ? null : (
-              <>
-                <RadarSnapshot
-                  scores={displayScores}
-                  className="rounded-3xl border border-white/10 bg-card/30 p-6 backdrop-blur-md"
-                />
-                {transcriptSegments.length > 0 ? (
-                  <PronunciationTranscript
-                    segments={transcriptSegments}
-                    phoneticMap={phoneticMap}
-                    className="w-full"
-                  />
-                ) : null}
-                {coachSummary ? (
-                  <div className="w-full">
-                    <CoachInsightCards
-                      biggestIssue={coachSummary.biggestIssue}
-                      strength={coachSummary.strength}
-                      patterns={coachSummary.patterns}
-                      acousticPatterns={coachSummary.acousticPatterns}
-                      vocabularySuggestions={coachSummary.vocabularySuggestions}
-                    />
-                  </div>
-                ) : null}
-                {baselineSessionId ? (
-                  <p className="text-center text-sm text-muted-foreground">
-                    Baseline saved — your dashboard radar is ready.
-                  </p>
-                ) : null}
-                <div className="flex flex-wrap justify-center gap-3">
-                  <Button variant="glow" asChild>
-                    <Link href="/dashboard">Go to dashboard</Link>
-                  </Button>
-                  {baselineSessionId ? (
-                    <Button variant="outline" asChild>
-                      <Link href="/assessment/results">View full results</Link>
-                    </Button>
-                  ) : null}
-                </div>
-              </>
-            )}
-          </div>
+          <AnalysisResultsLayout
+            scores={displayScores}
+            transcriptSegments={transcriptSegments}
+            sessionWordConfidences={wordConfidences}
+            phoneticMap={phoneticMap}
+            highlightSource={pronunciationHighlightSource}
+            coachSummary={coachSummary}
+            grammar={fullPath ? grammarFeedback : null}
+            baselineSessionId={baselineSessionId}
+            analyzing={analyzing}
+            analysisStatus={analysisStatus}
+          />
         ) : null}
 
         {step === "thank_you" ? (

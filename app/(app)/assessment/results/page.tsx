@@ -34,13 +34,15 @@ export default async function AssessmentResultsPage({ searchParams }: PageProps)
   const sessionId = sessionFromUrl && isRecordId(sessionFromUrl) ? sessionFromUrl : null;
 
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-2 sm:px-4">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-medium text-muted-foreground">Initial assessment</p>
-          <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">Your baseline results</h1>
+          <p className="text-sm font-medium text-muted-foreground">Baseline</p>
+          <h1 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+            Your baseline results
+          </h1>
           <p className="mt-2 text-muted-foreground">
-            Saved from your completed assessment — same detail as right after you finished recording.
+            Saved from your completed Quick Analysis — same layout as your live results.
           </p>
         </div>
         <Button variant="outline" size="sm" className="shrink-0 gap-2" asChild>

@@ -2,6 +2,8 @@
 
 import { useCallback, useRef, useState } from "react";
 
+import { staticTtsUrlForText } from "@/app/quick-analysis/tts-prompts";
+
 /** Deepgram can take several seconds locally; welcome copy is long. */
 const TTS_FETCH_TIMEOUT_MS = 90_000;
 
@@ -106,6 +108,15 @@ export function useSpeechSynthesis() {
     });
 
   const fetchTtsBlob = useCallback(async (text: string, signal?: AbortSignal): Promise<Blob> => {
+    const staticUrl = staticTtsUrlForText(text);
+    if (staticUrl) {
+      const res = await fetch(staticUrl, { signal, cache: "force-cache" });
+      if (res.ok) {
+        const contentType = res.headers.get("Content-Type")?.split(";")[0]?.trim() || "audio/mpeg";
+        return new Blob([await res.arrayBuffer()], { type: contentType });
+      }
+    }
+
     const res = await fetch("/api/quick-analysis/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -208,7 +219,7 @@ export function useSpeechSynthesis() {
         if (speakGenerationRef.current !== generation) return;
         if (err instanceof Error && err.message === "stale") return;
         if (err instanceof Error && err.name === "AbortError") return;
-        console.warn("[tts] Deepgram TTS failed, falling back to browser synthesis:", err);
+        console.warn("[tts] TTS failed, falling back to browser synthesis:", err);
         speakWithBrowserFallback(text, onEnd);
       } finally {
         if (fetchAbortRef.current === abort) {

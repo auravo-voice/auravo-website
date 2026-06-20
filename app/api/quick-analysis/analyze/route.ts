@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
-import type { QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
+import { displayWordConfidencesWithPolishedTranscript } from "@/app/quick-analysis/lib/polished-word-display";
+import type { QuickAnalysisTranscriptSegment, QuickAnalysisWordConfidence } from "@/app/quick-analysis/pronunciation-types";
+import { polishTranscriptSegmentsForDisplay } from "@/lib/transcription/polish-transcript-display";
 import {
   AURAVO_PENDING_BASELINE_SESSION_COOKIE,
   AURAVO_USER_ID_COOKIE,
@@ -11,6 +13,7 @@ import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
 import { getOnboardingBaselineForUser } from "@/db/queries/baseline";
 import { recordQuickAnalysisRun } from "@/db/queries/sqlite/quick-analysis-usage";
 import { persistQuickAnalysisBaseline } from "@/lib/quick-analysis/persist-baseline";
+import { shouldCountQuickAnalysisRun } from "@/lib/billing/quick-analysis-entitlement";
 import { runDeterministicQuickAnalysis } from "@/lib/quick-analysis/deterministic-analysis";
 import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
 import { transcribeQuickAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
@@ -66,6 +69,41 @@ export async function POST(req: Request) {
           getPhoneticPronunciations(flaggedWordsForPhonetics(wordConfidences)),
         );
         return NextResponse.json({ phoneticMap });
+      } catch (e) {
+        if (e instanceof QuickAnalysisBusyError) return busyResponse();
+        throw e;
+      }
+    }
+    if (json.mode === "polish-segments") {
+      const raw = (json as { segments?: unknown }).segments;
+      if (!Array.isArray(raw)) {
+        return NextResponse.json({ error: "segments array required." }, { status: 400 });
+      }
+      const segments: QuickAnalysisTranscriptSegment[] = raw.flatMap((seg) => {
+        if (!seg || typeof seg !== "object") return [];
+        const o = seg as Record<string, unknown>;
+        if (typeof o.label !== "string" || typeof o.transcript !== "string") return [];
+        return [
+          {
+            label: o.label,
+            transcript: o.transcript,
+            wordConfidences: parseWordConfidences(o.wordConfidences),
+          },
+        ];
+      });
+      try {
+        const polished = await withQuickAnalysisConcurrency(() =>
+          polishTranscriptSegmentsForDisplay(segments),
+        );
+        return NextResponse.json({
+          segments: polished.map((segment) => ({
+            ...segment,
+            wordConfidences: displayWordConfidencesWithPolishedTranscript(
+              segment.wordConfidences,
+              segment.transcript,
+            ),
+          })),
+        });
       } catch (e) {
         if (e instanceof QuickAnalysisBusyError) return busyResponse();
         throw e;
@@ -204,8 +242,24 @@ export async function POST(req: Request) {
         durationMs: result.durationMs,
         goalId,
         segmentCount: blobs.length,
+        display: {
+          version: 1,
+          scores: result.scores,
+          transcriptSegments: result.transcriptSegments,
+          wordConfidences: result.wordConfidences,
+          phoneticMap: result.phoneticMap,
+          pronunciationHighlightSource: result.pronunciationHighlightSource,
+          coachSummary: {
+            biggestIssue: result.coachSummary.biggestIssue,
+            strength: result.coachSummary.strength,
+            patterns: result.coachSummary.patterns,
+            acousticPatterns: result.coachSummary.acousticPatterns,
+            vocabularySuggestions: result.coachSummary.vocabularySuggestions ?? [],
+          },
+          grammar: result.grammar,
+        },
       });
-      if (!hadBaseline) {
+      if (!hadBaseline && (await shouldCountQuickAnalysisRun(auth))) {
         await recordQuickAnalysisRun(auth);
       }
       console.info("[quick-analysis/analyze] full mode ok", {
@@ -223,6 +277,8 @@ export async function POST(req: Request) {
         transcriptSegments: result.transcriptSegments,
         wordConfidences: result.wordConfidences,
         phoneticMap: result.phoneticMap,
+        pronunciationHighlightSource: result.pronunciationHighlightSource,
+        grammar: result.grammar,
         coachSummary: {
           biggestIssue: result.coachSummary.biggestIssue,
           strength: result.coachSummary.strength,

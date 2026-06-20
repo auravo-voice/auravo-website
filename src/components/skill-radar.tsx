@@ -39,16 +39,16 @@ export function SkillRadar({
     <div className={cn("relative", className)}>
       <svg
         viewBox="0 0 260 260"
-        className="size-full max-w-xs text-foreground drop-shadow-[0_0_40px_rgba(255,102,0,0.2)] sm:max-w-sm"
+        className="size-full max-w-xs text-foreground drop-shadow-[0_0_40px_color-mix(in_oklab,var(--primary)_20%,transparent)] sm:max-w-sm"
       >
         <defs>
           <linearGradient id={fillId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#ff6600" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="#cc0000" stopOpacity="0.22" />
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.35" />
+            <stop offset="100%" stopColor="var(--destructive)" stopOpacity="0.22" />
           </linearGradient>
           <linearGradient id={strokeId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="#ff6600" />
-            <stop offset="100%" stopColor="#cc0000" />
+            <stop offset="0%" stopColor="var(--primary)" />
+            <stop offset="100%" stopColor="var(--destructive)" />
           </linearGradient>
         </defs>
         {rings.map((pct) => (

@@ -18,7 +18,7 @@ export function RadarSnapshot({
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-3 rounded-3xl border border-white/10 bg-white/5 p-6 shadow-[0_0_60px_-12px_rgba(255,102,0,0.3)] backdrop-blur-xl",
+        "flex flex-col items-center gap-3 rounded-3xl border border-border bg-card/60 p-6 shadow-[0_0_60px_-12px_color-mix(in_oklab,var(--primary)_30%,transparent)] backdrop-blur-sm",
         className,
       )}
     >

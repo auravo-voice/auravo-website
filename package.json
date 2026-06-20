@@ -8,6 +8,7 @@
   "scripts": {
     "postinstall": "patch-package",
     "setup:transcription": "bash scripts/setup-transcription.sh",
+    "generate:qa-tts": "node scripts/generate-quick-analysis-tts.mjs",
     "dev": "next dev",
     "dev:lan": "next dev --hostname 0.0.0.0",
     "build": "next build",

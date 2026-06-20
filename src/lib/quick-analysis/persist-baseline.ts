@@ -11,6 +11,8 @@ import { writeBaselineHandoffToken } from "@/lib/assessment/baseline-handoff-dis
 import type { CanonicalAnalysis } from "@/lib/analysis/run-analysis";
 import { serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
 import { isOnboardingGoalId } from "@/lib/coach/dashboard";
+import type { QuickAnalysisDisplaySnapshot } from "@/lib/quick-analysis/display-snapshot";
+import { analysisJsonWithQuickAnalysisDisplay } from "@/lib/quick-analysis/display-snapshot";
 
 export type PersistQuickAnalysisBaselineInput = {
   userId: string;
@@ -20,6 +22,8 @@ export type PersistQuickAnalysisBaselineInput = {
   durationMs?: number | null;
   goalId?: string | null;
   segmentCount: number;
+  /** Exact Quick Analysis results UI payload — replayed on /assessment/results. */
+  display: QuickAnalysisDisplaySnapshot;
 };
 
 export async function persistQuickAnalysisBaseline(
@@ -50,7 +54,10 @@ export async function persistQuickAnalysisBaseline(
     sessionId,
     text: displayTranscript.length > 0 ? displayTranscript : analysis.transcript,
     adapter: analysis.adapter,
-    analysisJson: serializeAnalysisForPersistence(analysis),
+    analysisJson: analysisJsonWithQuickAnalysisDisplay(
+      serializeAnalysisForPersistence(analysis),
+      input.display,
+    ),
   });
 
   await createSessionScores({

@@ -35,6 +35,8 @@ export const WORDLE_STATS_INITIAL: WordleStats = {
 
 export type DayRow = { guess: string; evaluation: TileState[] };
 
+export const WORDLE_MAX_GUESSES = 6;
+
 export type DayProgress = {
   status: "playing" | "won" | "lost";
   rows: DayRow[];

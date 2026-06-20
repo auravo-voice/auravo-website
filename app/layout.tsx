@@ -32,7 +32,7 @@ export default async function RootLayout({
   const initialAuthSession = await getAuthSessionSnapshot();
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="bg-background" suppressHydrationWarning>
       <body
         className={`${montserrat.variable} ${geistMono.variable} min-h-dvh font-sans antialiased`}
       >

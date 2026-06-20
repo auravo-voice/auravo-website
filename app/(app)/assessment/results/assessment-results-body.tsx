@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AssessmentResultsSummary } from "../assessment-results-summary";
+import { BaselineResultsView } from "./baseline-results-view";
 import { loadBaselineResultsForUser } from "@/lib/assessment/load-baseline-results";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,15 +11,15 @@ export async function AssessmentResultsBody({
   userId: string;
   sessionId: string | null;
 }) {
-  const results = await loadBaselineResultsForUser(userId, sessionId);
+  const loaded = await loadBaselineResultsForUser(userId, sessionId);
 
-  if (!results) {
+  if (!loaded) {
     return (
       <Card>
         <CardHeader>
           <CardTitle className="text-xl">No baseline on file yet</CardTitle>
           <CardDescription>
-            Complete the four-part voice assessment once. Your scores, coaching plan, and transcript are saved in your
+            Finish Quick Analysis once. Your scores, coaching insights, and transcript are saved in your
             account and will appear here afterward.
           </CardDescription>
         </CardHeader>
@@ -35,17 +35,5 @@ export async function AssessmentResultsBody({
     );
   }
 
-  return (
-    <>
-      <AssessmentResultsSummary results={results} />
-      <div className="flex flex-wrap justify-center gap-3 pb-8">
-        <Button variant="glow" asChild>
-          <Link href="/practice/today">Start today&apos;s practice</Link>
-        </Button>
-        <Button variant="outline" asChild>
-          <Link href="/progress">View progress journal</Link>
-        </Button>
-      </div>
-    </>
-  );
+  return <BaselineResultsView results={loaded.results} layout={loaded.layout} />;
 }

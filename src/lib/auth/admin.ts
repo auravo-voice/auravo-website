@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse } from "next/server";
+import { PB } from "@/db/collections";
 import { getAuthenticatedUserId } from "@/lib/auth/session";
 import { getServerPocketBase } from "@/lib/pocketbase/server";
 import { isPocketBaseAuthEnabled } from "@/lib/storage/env";
@@ -30,7 +31,7 @@ function hasAdminRoleFromRecord(record: Record<string, unknown>): boolean {
   return false;
 }
 
-/** Admin gate: true when user id is allowlisted, or PocketBase auth record has an admin role flag. */
+/** Admin gate: true when user id is allowlisted, or PocketBase user record has an admin role flag. */
 export async function isAdminUser(userId: string): Promise<boolean> {
   if (adminIdAllowlist().has(userId)) return true;
   if (!isPocketBaseAuthEnabled()) return false;
@@ -39,8 +40,10 @@ export async function isAdminUser(userId: string): Promise<boolean> {
     const pb = await getServerPocketBase();
     const authRecord = pb.authStore.record;
     if (pb.authStore.isValid && authRecord?.id === userId) {
-      return hasAdminRoleFromRecord(authRecord as unknown as Record<string, unknown>);
+      if (hasAdminRoleFromRecord(authRecord as unknown as Record<string, unknown>)) return true;
     }
+    const user = await pb.collection(PB.users).getOne(userId);
+    return hasAdminRoleFromRecord(user as unknown as Record<string, unknown>);
   } catch {
     /* treat as not-admin */
   }

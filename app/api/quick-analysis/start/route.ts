@@ -6,6 +6,7 @@ import {
   assertCanStartQuickAnalysis,
   getQuickAnalysisUsageForUser,
   QuickAnalysisPaywallError,
+  shouldCountQuickAnalysisRun,
 } from "@/lib/billing/quick-analysis-entitlement";
 
 export const runtime = "nodejs";
@@ -18,7 +19,7 @@ export async function POST() {
 
   try {
     const usage = await assertCanStartQuickAnalysis(auth);
-    if (!usage.needsBaseline) {
+    if (!usage.needsBaseline && (await shouldCountQuickAnalysisRun(auth))) {
       await recordQuickAnalysisRun(auth);
     }
     const nextUsage = await getQuickAnalysisUsageForUser(auth);

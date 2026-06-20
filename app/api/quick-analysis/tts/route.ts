@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
+import { readStaticQuickAnalysisTts } from "@/lib/quick-analysis/static-tts";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const STATIC_CACHE = "public, max-age=31536000, immutable";
 
 export async function POST(req: Request) {
   const auth = await requireApiUserId();
@@ -19,6 +22,16 @@ export async function POST(req: Request) {
 
   if (!text) {
     return NextResponse.json({ error: "No text provided" }, { status: 400 });
+  }
+
+  const staticAudio = readStaticQuickAnalysisTts(text);
+  if (staticAudio) {
+    return new Response(staticAudio, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Cache-Control": STATIC_CACHE,
+      },
+    });
   }
 
   const apiKey = process.env.DEEPGRAM_API_KEY;

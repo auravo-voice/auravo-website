@@ -26,7 +26,7 @@ export async function POST(req: Request) {
 
   const staticAudio = readStaticQuickAnalysisTts(text);
   if (staticAudio) {
-    return new Response(staticAudio, {
+    return new Response(new Uint8Array(staticAudio), {
       headers: {
         "Content-Type": "audio/mpeg",
         "Cache-Control": STATIC_CACHE,

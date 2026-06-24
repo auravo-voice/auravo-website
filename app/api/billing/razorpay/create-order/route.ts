@@ -34,6 +34,7 @@ export async function POST(req: Request) {
         id: plan.id,
         label: plan.label,
         displayAmount: plan.displayAmount,
+        sessionLimit: plan.sessionLimit,
       },
     });
   } catch (e) {

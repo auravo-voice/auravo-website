@@ -6,22 +6,26 @@ export type QuickAnalysisPlan = {
   amountPaise: number;
   displayAmount: string;
   durationDays: number;
+  /** Combined Quick Analysis + Voca coach sessions included in the plan. */
+  sessionLimit: number;
 };
 
 export const QUICK_ANALYSIS_PLANS: Record<QuickAnalysisPlanId, QuickAnalysisPlan> = {
   monthly: {
     id: "monthly",
     label: "Monthly",
-    amountPaise: 50_000,
-    displayAmount: "₹500",
+    amountPaise: 70_000,
+    displayAmount: "₹700",
     durationDays: 30,
+    sessionLimit: 50,
   },
   yearly: {
     id: "yearly",
     label: "Yearly",
-    amountPaise: 500_000,
-    displayAmount: "₹5,000",
+    amountPaise: 700_000,
+    displayAmount: "₹7,000",
     durationDays: 365,
+    sessionLimit: 500,
   },
 };
 

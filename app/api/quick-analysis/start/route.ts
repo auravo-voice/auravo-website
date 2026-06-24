@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { recordQuickAnalysisRun } from "@/db/queries/sqlite/quick-analysis-usage";
+import { recordBillableQuickAnalysisStart } from "@/db/queries/sqlite/quick-analysis-usage";
 import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
 import {
   assertCanStartQuickAnalysis,
@@ -20,7 +20,7 @@ export async function POST() {
   try {
     const usage = await assertCanStartQuickAnalysis(auth);
     if (!usage.needsBaseline && (await shouldCountQuickAnalysisRun(auth))) {
-      await recordQuickAnalysisRun(auth);
+      await recordBillableQuickAnalysisStart(auth);
     }
     const nextUsage = await getQuickAnalysisUsageForUser(auth);
     return NextResponse.json({ ok: true, usage: nextUsage });

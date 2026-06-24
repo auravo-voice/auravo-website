@@ -11,9 +11,8 @@ import {
 } from "@/lib/auth/auravo-user-cookie";
 import { isAuthError, requireApiUserId } from "@/lib/auth/require-auth";
 import { getOnboardingBaselineForUser } from "@/db/queries/baseline";
-import { recordQuickAnalysisRun } from "@/db/queries/sqlite/quick-analysis-usage";
+import { recordBaselineQuickAnalysisRun, shouldCountQuickAnalysisRun } from "@/lib/billing/quick-analysis-entitlement";
 import { persistQuickAnalysisBaseline } from "@/lib/quick-analysis/persist-baseline";
-import { shouldCountQuickAnalysisRun } from "@/lib/billing/quick-analysis-entitlement";
 import { runDeterministicQuickAnalysis } from "@/lib/quick-analysis/deterministic-analysis";
 import { getPhoneticPronunciations } from "@/lib/quick-analysis/phonetic-analysis";
 import { transcribeQuickAnalysisSegment } from "@/lib/quick-analysis/prepare-analysis-segment";
@@ -260,7 +259,7 @@ export async function POST(req: Request) {
         },
       });
       if (!hadBaseline && (await shouldCountQuickAnalysisRun(auth))) {
-        await recordQuickAnalysisRun(auth);
+        await recordBaselineQuickAnalysisRun(auth);
       }
       console.info("[quick-analysis/analyze] full mode ok", {
         ms: Date.now() - startedAt,

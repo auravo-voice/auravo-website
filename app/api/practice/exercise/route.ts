@@ -14,6 +14,12 @@ import {
 } from "@/lib/auth/auravo-user-cookie";
 import { PRACTICE_LIBRARY } from "@/lib/practice/library";
 import { runAnalysis, serializeAnalysisForPersistence } from "@/lib/analysis/run-analysis";
+import {
+  assertCanRecordVocaPractice,
+  QuickAnalysisPaywallError,
+  recordCompletedVocaPractice,
+  shouldCountQuickAnalysisRun,
+} from "@/lib/billing/quick-analysis-entitlement";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,6 +57,18 @@ export async function POST(req: Request) {
   }
 
   await ensureUserProfile(userId);
+
+  try {
+    await assertCanRecordVocaPractice(userId);
+  } catch (e) {
+    if (e instanceof QuickAnalysisPaywallError) {
+      return NextResponse.json(
+        { error: e.message, code: e.code, usage: e.usage },
+        { status: 402 },
+      );
+    }
+    throw e;
+  }
 
   const sessionId = randomUUID();
   const dataDir = getDataDir();
@@ -139,6 +157,10 @@ export async function POST(req: Request) {
       })
       .run();
   });
+
+  if (await shouldCountQuickAnalysisRun(userId)) {
+    await recordCompletedVocaPractice(userId);
+  }
 
   const dimensions = scoresToRadarDimensions(analysis.scores);
   const averageScore = Math.round(dimensions.reduce((a, d) => a + d.score, 0) / dimensions.length);

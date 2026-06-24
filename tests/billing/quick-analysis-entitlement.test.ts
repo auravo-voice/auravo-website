@@ -10,6 +10,9 @@ describe("adminQuickAnalysisUsage", () => {
     remainingFree: 0,
     subscribed: false,
     subscriptionExpiresAt: null,
+    sessionsLimit: null,
+    sessionsUsed: null,
+    remainingSessions: null,
     canStart: false,
     needsBaseline: false,
   };

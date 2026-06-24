@@ -12,3 +12,6 @@ export const QUICK_ANALYSIS_BUSY_MESSAGE =
 
 export const QUICK_ANALYSIS_PAYWALL_MESSAGE =
   "You've used your 3 free assessments for today. Subscribe to keep practicing with Voca.";
+
+export const SUBSCRIPTION_SESSIONS_EXHAUSTED_MESSAGE =
+  "You've used all coach sessions in your plan. Renew to keep practicing with Voca.";

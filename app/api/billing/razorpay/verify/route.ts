@@ -47,6 +47,7 @@ export async function POST(req: Request) {
     razorpayOrderId: orderId,
     razorpayPaymentId: paymentId,
     expiresAt,
+    sessionsLimit: plan.sessionLimit,
     now,
   });
 

@@ -815,6 +815,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
       <div className="mx-auto flex w-full max-w-2xl flex-col items-center gap-6 py-6">
         <QuickAnalysisPaywall
           razorpayKeyId={razorpayKeyId}
+          usage={usage}
           onSubscribed={() => {
             void refreshUsage().then(({ usage: nextUsage, razorpayKeyId: keyId }) => {
               setUsage(nextUsage);
@@ -856,7 +857,7 @@ export function QuickAnalysisFlow({ goalId = null }: QuickAnalysisFlowProps) {
                 : usage.isAdmin
                   ? "Admin · unlimited"
                   : usage.subscribed
-                    ? "Subscribed"
+                    ? `${usage.remainingSessions ?? 0} sessions left`
                     : `${usage.remainingFree} free left today`}
             </span>
           ) : null}

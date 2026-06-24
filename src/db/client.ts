@@ -36,6 +36,16 @@ export function getDb() {
   } catch {
     /* column already present */
   }
+  try {
+    sqlite.exec("ALTER TABLE user_subscription ADD COLUMN sessions_limit INTEGER;");
+  } catch {
+    /* column already present */
+  }
+  try {
+    sqlite.exec("ALTER TABLE user_subscription ADD COLUMN sessions_used INTEGER NOT NULL DEFAULT 0;");
+  } catch {
+    /* column already present */
+  }
   singleton = drizzle(sqlite, { schema });
   return singleton;
 }

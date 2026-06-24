@@ -138,6 +138,9 @@ export const userSubscription = sqliteTable("user_subscription", {
   razorpayOrderId: text("razorpay_order_id"),
   razorpayPaymentId: text("razorpay_payment_id"),
   expiresAt: integer("expires_at").notNull(),
+  /** Combined Quick Analysis + Voca sessions included in the current plan period. */
+  sessionsLimit: integer("sessions_limit"),
+  sessionsUsed: integer("sessions_used").notNull().default(0),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

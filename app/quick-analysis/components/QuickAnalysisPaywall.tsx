@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { QUICK_ANALYSIS_PLANS, type QuickAnalysisPlanId } from "@/lib/billing/plans";
+import type { QuickAnalysisUsageSnapshot } from "@/lib/billing/quick-analysis-usage-types";
 import { readJsonResponse } from "@/lib/api/read-json-response";
 
 type RazorpayHandlerResponse = {
@@ -35,13 +36,17 @@ declare global {
 
 export function QuickAnalysisPaywall({
   razorpayKeyId,
+  usage,
   onSubscribed,
 }: {
   razorpayKeyId: string | null;
+  usage?: QuickAnalysisUsageSnapshot | null;
   onSubscribed: () => void;
 }) {
   const [loadingPlan, setLoadingPlan] = React.useState<QuickAnalysisPlanId | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+
+  const sessionExhausted = usage?.subscribed && (usage.remainingSessions ?? 0) <= 0;
 
   const openCheckout = React.useCallback(
     async (planId: QuickAnalysisPlanId) => {
@@ -68,7 +73,7 @@ export function QuickAnalysisPaywall({
           amount: orderData.amount as number,
           currency: (orderData.currency as string) ?? "INR",
           name: "Auravo",
-          description: `Quick Analysis — ${plan.label}`,
+          description: `Voca coach — ${plan.label}`,
           order_id: orderData.orderId as string,
           theme: { color: "#ff6600" },
           handler: async (response) => {
@@ -113,7 +118,9 @@ export function QuickAnalysisPaywall({
       <CardHeader className="text-center">
         <CardTitle className="text-xl">Keep practicing with Voca</CardTitle>
         <CardDescription>
-          You&apos;ve used your 3 free assessments for today. Subscribe for unlimited Quick Analysis sessions.
+          {sessionExhausted
+            ? "You've used all coach sessions in your plan. Renew to keep practicing with Quick Analysis and Voca."
+            : "You've used your 3 free assessments for today. Subscribe for more Quick Analysis and Voca coach sessions."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -133,7 +140,10 @@ export function QuickAnalysisPaywall({
                 <span className="font-display text-lg">{plan.displayAmount}</span>
               </span>
               <span className="text-xs font-normal text-muted-foreground">
-                {planId === "yearly" ? "Best value — save ₹1,000 vs monthly" : "Billed every month"}
+                {plan.sessionLimit} coach sessions (Quick Analysis + Voca)
+              </span>
+              <span className="text-xs font-normal text-muted-foreground">
+                {planId === "yearly" ? "Best value — save ₹1,400 vs monthly" : "Billed every month"}
               </span>
               {loadingPlan === planId ? (
                 <span className="flex items-center gap-2 text-xs">

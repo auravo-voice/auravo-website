@@ -2,12 +2,18 @@ import "server-only";
 
 import { getOnboardingBaselineForUser } from "@/db/queries/baseline";
 import {
+  getActiveSubscription,
   getQuickAnalysisUsage,
+  recordBillableQuickAnalysisStart,
+  recordBillableVocaPracticeSession,
   recordQuickAnalysisRun,
 } from "@/db/queries/sqlite/quick-analysis-usage";
 import { isAdminUser } from "@/lib/auth/admin";
 import type { QuickAnalysisUsageSnapshot } from "@/lib/billing/quick-analysis-usage-types";
-import { QUICK_ANALYSIS_PAYWALL_MESSAGE } from "@/lib/quick-analysis/constants";
+import {
+  QUICK_ANALYSIS_PAYWALL_MESSAGE,
+  SUBSCRIPTION_SESSIONS_EXHAUSTED_MESSAGE,
+} from "@/lib/quick-analysis/constants";
 
 export class QuickAnalysisPaywallError extends Error {
   readonly code = "PAYWALL_REQUIRED" as const;
@@ -29,6 +35,7 @@ export function adminQuickAnalysisUsage(
     ...usage,
     canStart: true,
     remainingFree: usage.freeLimit,
+    remainingSessions: usage.sessionsLimit,
     subscribed: true,
     isAdmin: true,
     needsBaseline,
@@ -59,11 +66,35 @@ export async function getQuickAnalysisUsageForUser(userId: string): Promise<Quic
 export async function assertCanStartQuickAnalysis(userId: string): Promise<QuickAnalysisUsageSnapshot> {
   const usage = await getQuickAnalysisUsageForUser(userId);
   if (!usage.canStart) {
-    throw new QuickAnalysisPaywallError(usage);
+    const message =
+      usage.subscribed && usage.remainingSessions === 0
+        ? SUBSCRIPTION_SESSIONS_EXHAUSTED_MESSAGE
+        : QUICK_ANALYSIS_PAYWALL_MESSAGE;
+    throw new QuickAnalysisPaywallError(usage, message);
+  }
+  return usage;
+}
+
+export async function assertCanRecordVocaPractice(userId: string): Promise<QuickAnalysisUsageSnapshot> {
+  const usage = await getQuickAnalysisUsageForUser(userId);
+  if (usage.isAdmin) return usage;
+  if (usage.subscribed && !usage.canStart) {
+    throw new QuickAnalysisPaywallError(usage, SUBSCRIPTION_SESSIONS_EXHAUSTED_MESSAGE);
   }
   return usage;
 }
 
 export async function recordCompletedQuickAnalysis(userId: string): Promise<void> {
+  await recordBillableQuickAnalysisStart(userId);
+}
+
+/** First baseline save on the free tier (analyze route only — not subscription sessions). */
+export async function recordBaselineQuickAnalysisRun(userId: string): Promise<void> {
+  const subscription = await getActiveSubscription(userId);
+  if (subscription) return;
   await recordQuickAnalysisRun(userId);
+}
+
+export async function recordCompletedVocaPractice(userId: string): Promise<void> {
+  await recordBillableVocaPracticeSession(userId);
 }

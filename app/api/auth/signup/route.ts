@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createBrowserPocketBase } from "@/lib/pocketbase";
+import { pocketBaseAuthErrorMessage } from "@/lib/pocketbase/errors";
 import { isPocketBaseAuthEnabled } from "@/lib/storage/env";
 
 export const runtime = "nodejs";
@@ -37,10 +38,21 @@ export async function POST(req: Request) {
       name: name || email.split("@")[0],
       display_name: name || email.split("@")[0],
     });
+  } catch (e) {
+    return NextResponse.json({ error: pocketBaseAuthErrorMessage(e, "signup") }, { status: 400 });
+  }
+
+  try {
     await pb.collection("users").requestVerification(email);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Could not create account.";
-    return NextResponse.json({ error: msg }, { status: 400 });
+    console.error("[auth/signup] requestVerification failed:", e);
+    return NextResponse.json(
+      {
+        error:
+          "Your account was created, but we couldn't send a verification email. Try signing in or contact support.",
+      },
+      { status: 503 },
+    );
   }
 
   return NextResponse.json({ message: "Check your email to verify your account" }, { status: 200 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createBrowserPocketBase } from "@/lib/pocketbase";
+import { pocketBaseAuthErrorMessage } from "@/lib/pocketbase/errors";
 import { savePocketBaseAuthCookie } from "@/lib/pocketbase/server";
 import { ensureUserProfile } from "@/db/queries/user";
 import {
@@ -47,8 +48,7 @@ export async function POST(req: Request) {
   try {
     await pb.collection("users").authWithPassword(email, password);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Invalid email or password.";
-    return NextResponse.json({ error: msg }, { status: 401 });
+    return NextResponse.json({ error: pocketBaseAuthErrorMessage(e, "login") }, { status: 401 });
   }
 
   const userId = pb.authStore.record?.id;

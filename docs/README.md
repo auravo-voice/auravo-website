@@ -5,6 +5,7 @@ Documentation for the **auravo-web** Next.js application (voice coaching product
 | Document | Purpose |
 |----------|---------|
 | [DESIGN.md](./DESIGN.md) | Architecture, Quick Analysis, billing, auth, deployment |
+| [CODE_ARCHITECTURE.md](./CODE_ARCHITECTURE.md) | Code-level layout: modules, routes, pipelines, DB, conventions |
 | [INSTALLATION.md](./INSTALLATION.md) | Local dev, Vercel, and Hetzner (Podman) install |
 | [POCKETBASE.md](./POCKETBASE.md) | PocketBase collections, CORS, OAuth, storage modes |
 | [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) | Common failures and fixes |

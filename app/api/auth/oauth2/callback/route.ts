@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import PocketBase from "pocketbase";
 import { ensureUserProfile } from "@/db/queries/user";
 import { getPocketBaseUrl } from "@/lib/pocketbase";
+import { pocketBaseAuthErrorMessage } from "@/lib/pocketbase/errors";
 import { PB } from "@/db/collections";
 import { applyPocketBaseAuthCookie } from "@/lib/pocketbase/server";
 import {
@@ -62,8 +63,7 @@ export async function GET(request: NextRequest) {
       },
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Google sign-in failed.";
-    return loginWithError(request, msg);
+    return loginWithError(request, pocketBaseAuthErrorMessage(e, "login"));
   }
 
   const meta = pb.authStore.record as { name?: string; email?: string } | null;

@@ -1,24 +1,22 @@
 import Link from "next/link";
-import { AuravoMark } from "@/components/brand";
-import { PublicPageThemeToggle } from "@/components/public-page-theme-toggle";
+import { TalkingLabsLogoFull } from "@/components/brand";
 import { Button } from "@/components/ui/button";
 
 export default function HomePage() {
   return (
     <main className="relative flex min-h-dvh flex-col items-center justify-center bg-background px-6 py-16 text-center">
-      <PublicPageThemeToggle className="absolute right-4 top-4 sm:right-6 sm:top-6" />
       <div className="ambient-glow pointer-events-none fixed inset-0 -z-10" aria-hidden />
       <div className="relative z-10 flex max-w-lg flex-col items-center">
-        <AuravoMark className="h-16 w-auto sm:h-20" />
+        <TalkingLabsLogoFull className="h-24 w-auto sm:h-28" />
         <h1 className="mt-10 font-display text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-4xl">
           Speak with clarity in the moments that matter.
         </h1>
         <p className="mt-5 text-base leading-relaxed text-muted-foreground sm:text-lg">
-          Auravo coaches how you sound—pace, structure, and presence—so interviews, updates, and live conversations feel
-          practiced, not improvised.
+          Talking Labs coaches how you sound—pace, structure, and presence—so interviews, updates, and live
+          conversations feel practiced, not improvised.
         </p>
         <Button asChild size="lg" className="mt-10 min-w-[12rem] shadow-primary/25" variant="glow">
-          <Link href="/login?redirect=/dashboard">Open Auravo</Link>
+          <Link href="/login?redirect=/dashboard">Open Talking Labs</Link>
         </Button>
         <p className="mt-6 text-sm text-muted-foreground">
           New here?{" "}

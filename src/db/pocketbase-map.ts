@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { RecordModel } from "pocketbase";
+import { readDisplayName } from "@/lib/auth/display-name";
 import type { UserProfileRow, SessionScoresRow } from "@/db/types";
 
 export function pbTs(record: RecordModel, field: "created" | "updated" = "created"): number {
@@ -10,10 +11,14 @@ export function pbTs(record: RecordModel, field: "created" | "updated" = "create
 }
 
 export function mapUserRecord(record: RecordModel): UserProfileRow {
-  const display =
-    (typeof record.display_name === "string" && record.display_name.trim()) ||
-    (typeof record.name === "string" && record.name.trim()) ||
-    "Learner";
+  const display = readDisplayName(
+    {
+      display_name: record.display_name as string | undefined,
+      name: record.name as string | undefined,
+      email: record.email as string | undefined,
+    },
+    "Learner",
+  );
   return {
     id: record.id,
     displayName: display,

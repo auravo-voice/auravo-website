@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { resolveDisplayName } from "@/lib/auth/display-name";
 import { createBrowserPocketBase } from "@/lib/pocketbase";
 import { pocketBaseAuthErrorMessage } from "@/lib/pocketbase/errors";
 import { isPocketBaseAuthEnabled } from "@/lib/storage/env";
@@ -29,14 +30,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
   }
 
+  const displayName = resolveDisplayName({ profileName: name, email });
+
   const pb = createBrowserPocketBase();
   try {
     await pb.collection("users").create({
       email,
       password,
       passwordConfirm,
-      name: name || email.split("@")[0],
-      display_name: name || email.split("@")[0],
+      name: displayName,
+      display_name: displayName,
     });
   } catch (e) {
     return NextResponse.json({ error: pocketBaseAuthErrorMessage(e, "signup") }, { status: 400 });

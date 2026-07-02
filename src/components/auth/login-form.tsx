@@ -83,7 +83,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       />
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {notice ? (
-        <p className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
+        <p className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm text-amber-950">
           {notice}
         </p>
       ) : null}
@@ -94,7 +94,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       <p className="text-center text-xs text-muted-foreground">
         {mode === "login" ? (
           <>
-            New to auravo?{" "}
+            New to Talking Labs?{" "}
             <Link href="/signup" className="font-medium text-primary underline-offset-4 hover:underline">
               Create an account
             </Link>

@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import PocketBase from "pocketbase";
-import { ensureUserProfile } from "@/db/queries/user";
 import { getPocketBaseUrl } from "@/lib/pocketbase";
+import { extractGoogleProfileName } from "@/lib/auth/display-name";
+import { repairUserDisplayNameIfNeeded } from "@/lib/auth/repair-user-display-name";
 import { pocketBaseAuthErrorMessage } from "@/lib/pocketbase/errors";
 import { PB } from "@/db/collections";
 import { applyPocketBaseAuthCookie } from "@/lib/pocketbase/server";
@@ -52,8 +53,9 @@ export async function GET(request: NextRequest) {
   const callbackUrl = getOAuth2CallbackUrl(request);
   const pb = new PocketBase(getPocketBaseUrl());
 
+  let authData;
   try {
-    await pb.collection(PB.users).authWithOAuth2Code(
+    authData = await pb.collection(PB.users).authWithOAuth2Code(
       provider.name,
       code,
       provider.codeVerifier,
@@ -66,25 +68,15 @@ export async function GET(request: NextRequest) {
     return loginWithError(request, pocketBaseAuthErrorMessage(e, "login"));
   }
 
-  const meta = pb.authStore.record as { name?: string; email?: string } | null;
-  const display =
-    (typeof meta?.name === "string" && meta.name.trim()) ||
-    (typeof meta?.email === "string" && meta.email.split("@")[0]) ||
-    "Learner";
+  const record = authData.record;
+  const googleProfileName = extractGoogleProfileName(authData.meta);
 
-  const userId = pb.authStore.record?.id;
-  if (userId) {
-    try {
-      await pb.collection(PB.users).update(userId, {
-        name: display,
-        display_name: display,
-      });
-    } catch {
-      /* optional profile fields */
-    }
-    if (isSqliteStorage()) {
-      await ensureUserProfile(userId, { displayName: display });
-    }
+  const userId = record?.id;
+  if (userId && record) {
+    const updated = await repairUserDisplayNameIfNeeded(pb, record, { googleProfileName });
+    pb.authStore.save(authData.token, updated);
+  } else {
+    pb.authStore.save(authData.token, record);
   }
 
   const dest = redirectAfter.startsWith("/") ? redirectAfter : "/dashboard";

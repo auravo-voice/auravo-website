@@ -20,7 +20,6 @@ import { isRecordId } from "@/lib/util/is-uuid-like";
 import { ensureUserProfile } from "@/db/queries/user";
 import { DashboardGreeting } from "@/components/dashboard-greeting";
 import { SkillRadar } from "@/components/skill-radar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -62,7 +61,7 @@ function DashboardCoachFallback() {
         </div>
       </header>
       <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card className="overflow-hidden border-primary/20">
+        <Card className="overflow-hidden">
           <CardHeader className="pb-2">
             <div className="h-5 w-40 rounded-md bg-muted" />
             <div className="mt-2 h-4 w-full max-w-md rounded-md bg-muted" />
@@ -98,22 +97,22 @@ function DashboardEmptyState({ displayName }: { displayName: string }) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 py-4">
       <header>
-        <p className="text-sm font-medium text-muted-foreground">Dashboard</p>
+        <p className="text-sm text-muted-foreground">Dashboard</p>
         <DashboardGreeting
           displayName={displayName}
-          className="font-display text-3xl font-semibold tracking-tight sm:text-4xl"
+          className="font-display text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.025em] text-foreground sm:text-[2rem]"
         />
       </header>
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Complete Quick Analysis</CardTitle>
+          <CardTitle className="text-lg">Complete Quick Analysis</CardTitle>
           <CardDescription>
             Skill scores and the radar chart only appear after you finish the full Quick Analysis path. The app stores
             transcripts locally and derives scores from your voice — your coach model is not asked to invent numbers.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row">
-          <Button variant="glow" asChild>
+          <Button asChild>
             <Link href="/quick-analysis">Start Quick Analysis</Link>
           </Button>
           <Button variant="outline" asChild>
@@ -214,55 +213,59 @@ async function DashboardCoachContent({
   const sessionsLabel = stats.totalSessions === 1 ? "1 session" : `${stats.totalSessions} sessions`;
 
   return (
-    <div className="mx-auto flex max-w-6xl flex-col gap-8">
+    <div className="mx-auto flex max-w-6xl flex-col gap-10">
       {needsHandoffCleanup ? (
         <Suspense fallback={null}>
           <DashboardSessionUrlCleanup userId={baseline.user.id} active />
         </Suspense>
       ) : null}
-      <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">Dashboard</p>
+      <header className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-2xl space-y-2">
+          <p className="text-sm text-muted-foreground">Dashboard</p>
           <DashboardGreeting
             displayName={baseline.user.displayName}
-            className="font-display text-3xl font-semibold tracking-tight sm:text-4xl"
+            className="font-display text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.025em] text-foreground sm:text-[2rem]"
           />
           <Suspense fallback={<DashboardNarrativeIntroFallback />}>
             <DashboardCoachNarrativeIntro input={narrativeProps} />
           </Suspense>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="accent" className="gap-1">
-            <Flame className="size-3.5" />
-            {streakLabel}
-          </Badge>
-          <Badge variant="secondary">{sessionsLabel} saved</Badge>
-          <Badge variant="outline">Goal · {goalLabel}</Badge>
+        <div className="inline-flex flex-wrap items-stretch overflow-hidden rounded-xl border border-border/70 bg-card shadow-xs sm:mt-1">
+          <div className="flex items-center gap-2 border-b border-border/70 px-3.5 py-2.5 text-sm text-foreground sm:border-b-0 sm:border-r">
+            <Flame className="size-3.5 shrink-0 text-accent" aria-hidden />
+            <span>{streakLabel}</span>
+          </div>
+          <div className="flex items-center border-b border-border/70 px-3.5 py-2.5 text-sm text-muted-foreground sm:border-b-0 sm:border-r">
+            {sessionsLabel} saved
+          </div>
+          <div className="flex items-center px-3.5 py-2.5 text-sm text-muted-foreground">
+            Goal · {goalLabel}
+          </div>
         </div>
       </header>
 
-      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-        <Card className="overflow-hidden border-primary/20 bg-gradient-to-br from-card via-card to-primary/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg">Today&apos;s session</CardTitle>
+      <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:gap-7">
+        <Card className="overflow-hidden">
+          <CardHeader>
+            <CardTitle>Today&apos;s session</CardTitle>
             <CardDescription>
               15 min · 3 speaking blocks · coaching updates after you finish each block
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-6 sm:flex-row sm:items-center">
-            <div className="flex-1 space-y-4">
+          <CardContent className="flex flex-col gap-7 sm:flex-row sm:items-center">
+            <div className="flex-1 space-y-5">
               <Suspense fallback={<DashboardNarrativeTodayFallback />}>
                 <DashboardCoachNarrativeTodaySession input={narrativeProps} />
               </Suspense>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Baseline average</span>
-                  <span>{avg}%</span>
+              <div className="space-y-2.5">
+                <div className="flex justify-between text-[13px]">
+                  <span className="text-muted-foreground">Baseline average</span>
+                  <span className="font-semibold tabular-nums text-foreground">{avg}%</span>
                 </div>
                 <Progress value={avg} />
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button size="lg" className="gap-2" variant="glow" asChild>
+                <Button size="lg" className="gap-2" asChild>
                   <Link href="/practice/today">
                     <Play className="size-4" />
                     Start today&apos;s practice
@@ -276,30 +279,30 @@ async function DashboardCoachContent({
                 </Button> */}
               </div>
             </div>
-            <SkillRadar dimensions={ordered} className="mx-auto w-full max-w-[280px] opacity-95" />
+            <SkillRadar dimensions={ordered} className="mx-auto w-full max-w-[280px]" />
           </CardContent>
         </Card>
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Skill mix</CardTitle>
+            <CardTitle>Skill mix</CardTitle>
             <CardDescription>
               Six dimensions from your saved initial assessment.
             </CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             {ordered.map((d) => (
               <div key={d.key}>
-                <div className="mb-1 flex justify-between text-sm">
-                  <span>{d.label}</span>
-                  <span className="tabular-nums text-muted-foreground">
+                <div className="mb-2 flex justify-between text-[13px]">
+                  <span className="text-foreground">{d.label}</span>
+                  <span className="font-semibold tabular-nums text-foreground">
                     {Number.isFinite(d.score) ? Math.round(d.score) : 0}
                   </span>
                 </div>
                 <Progress value={d.score} />
               </div>
             ))}
-            <Separator />
+            <Separator className="bg-border/60" />
             <Button variant="outline" size="sm" className="w-full" asChild>
               <Link href="/assessment/results">View full baseline results</Link>
             </Button>
@@ -310,11 +313,13 @@ async function DashboardCoachContent({
         </Card>
       </div>
 
-      <Card className="border-dashed border-primary/25 bg-muted/15">
-        <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-primary">Quick win</p>
-            <p className="font-display text-lg font-semibold">Try today&apos;s vocabulary challenge</p>
+      <Card className="border border-dashed border-border/80 bg-card/80 shadow-xs">
+        <CardContent className="flex flex-col gap-5 py-6 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1.5">
+            <p className="text-[13px] font-medium text-accent">Quick win</p>
+            <p className="font-display text-base font-semibold tracking-[-0.01em] text-foreground">
+              Try today&apos;s vocabulary challenge
+            </p>
             <p className="text-sm text-muted-foreground">
               Auravord — same five-letter answer for everyone each day. You get six guesses.
             </p>

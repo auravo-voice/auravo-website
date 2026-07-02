@@ -17,8 +17,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "Auravo",
-    template: "%s · Auravo",
+    default: "Talking Labs",
+    template: "%s · Talking Labs",
   },
   description:
     "Voice-first communication coaching for interviews, meetings, and high-stakes conversations—with clear, actionable feedback.",
@@ -32,7 +32,7 @@ export default async function RootLayout({
   const initialAuthSession = await getAuthSessionSnapshot();
 
   return (
-    <html lang="en" className="bg-background" suppressHydrationWarning>
+    <html lang="en" className="light bg-background" suppressHydrationWarning>
       <body
         className={`${montserrat.variable} ${geistMono.variable} min-h-dvh font-sans antialiased`}
       >

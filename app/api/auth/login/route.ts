@@ -4,6 +4,7 @@ import { createBrowserPocketBase } from "@/lib/pocketbase";
 import { pocketBaseAuthErrorMessage } from "@/lib/pocketbase/errors";
 import { savePocketBaseAuthCookie } from "@/lib/pocketbase/server";
 import { ensureUserProfile } from "@/db/queries/user";
+import { repairUserDisplayNameIfNeeded } from "@/lib/auth/repair-user-display-name";
 import {
   AURAVO_USER_ID_COOKIE,
   auravoUserIdCookieOptions,
@@ -51,9 +52,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: pocketBaseAuthErrorMessage(e, "login") }, { status: 401 });
   }
 
-  const userId = pb.authStore.record?.id;
+  let record = pb.authStore.record;
+  if (record) {
+    record = await repairUserDisplayNameIfNeeded(pb, record);
+    pb.authStore.save(pb.authStore.token, record);
+  }
+
+  const userId = record?.id;
   if (userId && isSqliteStorage()) {
-    const mapped = mapUserRecord(pb.authStore.record!);
+    const mapped = mapUserRecord(record!);
     await ensureUserProfile(userId, { displayName: mapped.displayName });
   }
 

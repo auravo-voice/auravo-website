@@ -8,7 +8,7 @@ export async function DashboardCoachNarrativeIntro({ input }: { input: Dashboard
   return (
     <>
       {warning ? <CoachDegradedBanner message={warning} /> : null}
-      <p className="mt-2 max-w-xl text-muted-foreground">{copy.coachBlurb}</p>
+      <p className="mt-1 max-w-xl text-[15px] leading-relaxed text-muted-foreground">{copy.coachBlurb}</p>
     </>
   );
 }
@@ -17,12 +17,12 @@ export async function DashboardCoachNarrativeIntro({ input }: { input: Dashboard
 export async function DashboardCoachNarrativeTodaySession({ input }: { input: DashboardNarrativeInput }) {
   const { data: copy } = await getDashboardCoachingNarrative(input);
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="text-sm font-medium text-primary">Focus</p>
-        <p className="font-display text-xl">{copy.todaySessionTitle}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{copy.todaySessionFocus}</p>
-      </div>
+    <div>
+      <p className="text-[13px] font-medium text-muted-foreground">Focus</p>
+      <p className="mt-1 font-display text-lg font-semibold leading-snug tracking-[-0.01em] text-foreground">
+        {copy.todaySessionTitle}
+      </p>
+      <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{copy.todaySessionFocus}</p>
     </div>
   );
 }

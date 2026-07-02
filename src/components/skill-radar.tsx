@@ -9,6 +9,8 @@ function polarPoint(cx: number, cy: number, r: number, angleDeg: number) {
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
 }
 
+const GRID_STROKE = "var(--border-subtle)";
+
 export function SkillRadar({
   className,
   dimensions,
@@ -18,7 +20,6 @@ export function SkillRadar({
 }) {
   const uid = useId().replace(/:/g, "");
   const fillId = `radarFill-${uid}`;
-  const strokeId = `radarStroke-${uid}`;
 
   const scores = useMemo(() => dimensions.map((d) => d.score), [dimensions]);
   const labels = useMemo(() => dimensions.map((d) => d.label), [dimensions]);
@@ -37,27 +38,19 @@ export function SkillRadar({
 
   return (
     <div className={cn("relative", className)}>
-      <svg
-        viewBox="0 0 260 260"
-        className="size-full max-w-xs text-foreground drop-shadow-[0_0_40px_color-mix(in_oklab,var(--primary)_20%,transparent)] sm:max-w-sm"
-      >
+      <svg viewBox="0 0 260 260" className="size-full max-w-xs sm:max-w-sm">
         <defs>
           <linearGradient id={fillId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.35" />
-            <stop offset="100%" stopColor="var(--destructive)" stopOpacity="0.22" />
-          </linearGradient>
-          <linearGradient id={strokeId} x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor="var(--primary)" />
-            <stop offset="100%" stopColor="var(--destructive)" />
+            <stop offset="0%" stopColor="var(--primary)" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="var(--primary)" stopOpacity="0.08" />
           </linearGradient>
         </defs>
         {rings.map((pct) => (
           <polygon
             key={pct}
             fill="none"
-            stroke="currentColor"
-            strokeOpacity={0.12}
-            strokeWidth={1}
+            stroke={GRID_STROKE}
+            strokeWidth={0.75}
             points={Array.from({ length: n }, (_, i) => {
               const angle = -90 + (360 / n) * i;
               const p = polarPoint(cx, cy, (pct / 100) * maxR, angle);
@@ -75,17 +68,17 @@ export function SkillRadar({
               y1={cy}
               x2={p.x}
               y2={p.y}
-              stroke="currentColor"
-              strokeOpacity={0.12}
-              strokeWidth={1}
+              stroke={GRID_STROKE}
+              strokeWidth={0.75}
             />
           );
         })}
         <path
           d={path}
           fill={`url(#${fillId})`}
-          stroke={`url(#${strokeId})`}
-          strokeWidth={2}
+          stroke="var(--primary)"
+          strokeWidth={1.75}
+          strokeLinejoin="round"
           vectorEffect="non-scaling-stroke"
         />
         {points.map((_, i) => {
@@ -99,8 +92,9 @@ export function SkillRadar({
               <circle
                 cx={badge.x}
                 cy={badge.y}
-                r={13}
-                className="fill-background/90 stroke-primary/40"
+                r={12}
+                fill="var(--card)"
+                stroke="var(--border-subtle)"
                 strokeWidth={1}
               />
               <text
@@ -108,17 +102,17 @@ export function SkillRadar({
                 y={badge.y}
                 textAnchor="middle"
                 dominantBaseline="central"
-                fill="currentColor"
-                className="text-[10px] font-semibold tabular-nums"
+                fill="var(--foreground)"
+                style={{ fontSize: "10px", fontWeight: 600, fontVariantNumeric: "tabular-nums" }}
               >
-                {score}%
+                {score}
               </text>
             </g>
           );
         })}
         {labels.map((label, i) => {
           const angle = -90 + (360 / n) * i;
-          const p = polarPoint(cx, cy, maxR + 26, angle);
+          const p = polarPoint(cx, cy, maxR + 24, angle);
           return (
             <text
               key={`${label}-${i}`}
@@ -126,9 +120,8 @@ export function SkillRadar({
               y={p.y}
               textAnchor="middle"
               dominantBaseline="middle"
-              fill="currentColor"
-              opacity={0.55}
-              className="text-[9px] font-medium uppercase tracking-wide"
+              fill="var(--muted-foreground)"
+              style={{ fontSize: "10px", fontWeight: 500, letterSpacing: "0.01em" }}
             >
               {label.split(" ")[0]}
             </text>

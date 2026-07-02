@@ -28,19 +28,17 @@ export function AuthHeaderActions() {
         <Button variant="ghost" size="sm" asChild>
           <Link href="/dashboard">Dashboard</Link>
         </Button>
-        {session.pocketBaseAuth ? (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              void signOut().then(() => {
-                window.location.href = "/login";
-              });
-            }}
-          >
-            Sign out
-          </Button>
-        ) : null}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            void signOut().then(() => {
+              window.location.href = "/login";
+            });
+          }}
+        >
+          Sign out
+        </Button>
       </div>
     );
   }

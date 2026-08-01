@@ -150,6 +150,10 @@ Do NOT flag:
 - Long sentence / "run-on" lecture terms
 - Normal casual speech or fillers
 - Cutting them off mid-thought
+- Contractions vs full forms that mean the same thing — both are correct English
+  (e.g. do NOT change "it is" ↔ "it's", "do not" ↔ "don't", "I am" ↔ "I'm",
+  "we are" ↔ "we're", "cannot" ↔ "can't"). Never suggest a contraction "fix"
+  when the learner already used a correct full form, or the reverse.
 
 Every "error" MUST be copied exactly from the transcript.
 Every "correction" MUST be words they can say out loud.

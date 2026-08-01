@@ -4,7 +4,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
+import {
+  MAX_VOCABULARY_SUGGESTIONS,
+  type VocabularySuggestion,
+} from "@/lib/analysis/vocabulary-types";
+import { MAX_SPEECH_PATTERNS } from "@/lib/coach/coaching-limits";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 import type { QuickAnalysisGrammarSnapshot } from "@/lib/quick-analysis/grammar-snapshot";
@@ -116,9 +120,12 @@ export function AnalysisResultsLayout({
     (s) => s.transcript.length > 0 || s.wordConfidences.length > 0,
   );
 
-  const patterns = coachSummary?.patterns ?? [];
+  const patterns = (coachSummary?.patterns ?? []).slice(0, MAX_SPEECH_PATTERNS);
   const acousticPatterns = coachSummary?.acousticPatterns ?? [];
-  const vocabularySuggestions = coachSummary?.vocabularySuggestions ?? [];
+  const vocabularySuggestions = (coachSummary?.vocabularySuggestions ?? []).slice(
+    0,
+    MAX_VOCABULARY_SUGGESTIONS,
+  );
   const biggestIssue = coachSummary?.biggestIssue?.trim();
   const strength = coachSummary?.strength?.trim();
 
@@ -138,31 +145,37 @@ export function AnalysisResultsLayout({
 
       {analyzing ? null : (
         <div className="flex flex-col gap-6 pb-4">
-          {/* Radar + word stats side by side */}
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <AnalysisSectionCard className="flex flex-col items-center justify-center">
-              <RadarSnapshot scores={scores} className="border-0 bg-transparent p-0 shadow-none backdrop-blur-none" />
-            </AnalysisSectionCard>
+          {/* Scores overview — pronunciation & grammar lead the radar axes */}
+          <AnalysisSectionCard className="flex flex-col items-center justify-center">
+            <RadarSnapshot scores={scores} className="border-0 bg-transparent p-0 shadow-none backdrop-blur-none" />
+          </AnalysisSectionCard>
 
-            {stats.allWords.length > 0 ? (
-              <div className="grid grid-cols-1 gap-6">
+          {/* Pronunciation first */}
+          {stats.allWords.length > 0 ? (
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+              <AnalysisSectionCard>
+                <h3 className="mb-3 text-xl font-semibold text-foreground">Pronunciation</h3>
+                <p className="mb-4 text-sm text-muted-foreground">
+                  How clearly your words came through — clear, needs polish, or worth practising.
+                </p>
+                <WordStatsRow
+                  clearCount={stats.clearCount}
+                  partialCount={stats.partialCount}
+                  reviewCount={stats.reviewCount}
+                />
+              </AnalysisSectionCard>
+
+              {stats.flagged.length > 0 ? (
                 <AnalysisSectionCard>
-                  <WordStatsRow
-                    clearCount={stats.clearCount}
-                    partialCount={stats.partialCount}
-                    reviewCount={stats.reviewCount}
-                  />
+                  <h3 className="mb-3 text-sm font-semibold text-foreground">Words to practise</h3>
+                  <WordsToPractiseChips flagged={stats.flagged} />
                 </AnalysisSectionCard>
+              ) : null}
+            </div>
+          ) : null}
 
-                {stats.flagged.length > 0 ? (
-                  <AnalysisSectionCard>
-                    <h3 className="mb-3 text-sm font-semibold text-foreground">Words to practise</h3>
-                    <WordsToPractiseChips flagged={stats.flagged} />
-                  </AnalysisSectionCard>
-                ) : null}
-              </div>
-            ) : null}
-          </div>
+          {/* Grammar second */}
+          {grammar ? <GrammarSection grammar={grammar} /> : null}
 
           {/* Priority focus + strengths */}
           {biggestIssue || strength ? (
@@ -197,12 +210,12 @@ export function AnalysisResultsLayout({
             </AnalysisSectionCard>
           ) : null}
 
-          {/* Vocabulary */}
+          {/* Vocabulary rephrases — capped, lower priority */}
           {vocabularySuggestions.length > 0 ? (
             <AnalysisSectionCard>
               <h3 className="text-xl font-semibold text-foreground">Simpler word choices</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Same idea — said in a clearer way. Plain tips, no fancy terms.
+                Up to {MAX_VOCABULARY_SUGGESTIONS} clearer alternatives — secondary to grammar and pronunciation.
               </p>
               <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
                 {vocabularySuggestions.map((s, i) => (
@@ -211,9 +224,6 @@ export function AnalysisResultsLayout({
               </div>
             </AnalysisSectionCard>
           ) : null}
-
-          {/* Grammar (full assessment only) */}
-          {grammar ? <GrammarSection grammar={grammar} /> : null}
 
           {/* Voice delivery */}
           {acousticPatterns.length > 0 ? (

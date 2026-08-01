@@ -251,6 +251,23 @@ html {
   color: oklch(0.55 0.18 25);
 }
 
+/* Practice chips — dark text on tinted pills (Tailwind amber/red was too low-contrast). */
+.qa-pronunciation-chip {
+  font-weight: 600;
+}
+
+.qa-pronunciation-chip--partial {
+  background: oklch(0.93 0.07 85);
+  border-color: oklch(0.68 0.14 75);
+  color: oklch(0.28 0.07 55);
+}
+
+.qa-pronunciation-chip--review {
+  background: oklch(0.93 0.05 25);
+  border-color: oklch(0.65 0.16 25);
+  color: oklch(0.28 0.08 25);
+}
+
 @keyframes voice-bar {
   0%,
   100% {

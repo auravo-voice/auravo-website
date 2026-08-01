@@ -63,9 +63,8 @@ export function pronunciationStatClassName(color: WordHighlightColor): string {
 }
 
 export function pronunciationChipClassName(color: "yellow" | "red"): string {
-  return color === "red"
-    ? "border-red-500/50 bg-red-500/20 text-red-900 dark:text-red-100"
-    : "border-amber-500/50 bg-amber-500/20 text-amber-900 dark:text-amber-100";
+  const tone = color === "red" ? "review" : "partial";
+  return `qa-pronunciation-chip qa-pronunciation-chip--${tone}`;
 }
 
 export function pronunciationChipDotClassName(color: "yellow" | "red"): string {

@@ -8,7 +8,7 @@ import type {
   QuickAnalysisTranscriptSegment,
   QuickAnalysisWordConfidence,
 } from "@/app/quick-analysis/pronunciation-types";
-import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
+import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-types";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 import type { SixDimensionScores } from "@/lib/assessment/heuristics";
 import { QuickAnalysisPaywall } from "./components/QuickAnalysisPaywall";

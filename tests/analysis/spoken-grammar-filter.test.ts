@@ -30,6 +30,28 @@ describe("spoken-grammar-filter", () => {
     expect(errors[0]?.error).toBe("he don't");
   });
 
+  it("drops contraction-only style nags (it is ↔ it's)", () => {
+    const errors = filterSpokenGrammarErrors(
+      [
+        {
+          error: "It is a black and white photo",
+          correction: "It's a black and white photo",
+          type: "other",
+          explanation: "You need to use it's instead of it is",
+        },
+        {
+          error: "he don't",
+          correction: "he doesn't",
+          type: "agreement",
+          explanation: "Third-person singular needs doesn't.",
+        },
+      ],
+      "It is a black and white photo and he don't know",
+    );
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.error).toBe("he don't");
+  });
+
   it("detects punctuation-only corrections", () => {
     expect(correctionOnlyAddsPunctuation("hello world", "hello, world")).toBe(true);
     expect(correctionOnlyAddsPunctuation("he don't", "he doesn't")).toBe(false);

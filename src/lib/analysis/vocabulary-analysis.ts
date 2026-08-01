@@ -5,21 +5,14 @@ import { z } from "zod";
 import { groqChatStructured } from "@/lib/groq/chat-json";
 import { PLAIN_LANGUAGE_COACH_RULES } from "@/lib/coach/plain-language-style";
 import { getGroqCoachTimeoutMs } from "@/lib/groq/env";
+import {
+  MAX_VOCABULARY_SUGGESTIONS,
+  type VocabularyAnalysisResult,
+  type VocabularySuggestion,
+} from "@/lib/analysis/vocabulary-types";
 
-export type VocabularySuggestion = {
-  /** Exact phrase from the transcript (spoken words). */
-  phrase: string;
-  /** Clearer or more precise wording the speaker could use. */
-  improvement: string;
-  reason: string;
-};
-
-export type VocabularyAnalysisResult = {
-  suggestions: VocabularySuggestion[];
-  score: number;
-  summary: string;
-  strengths: string[];
-};
+export type { VocabularyAnalysisResult, VocabularySuggestion };
+export { MAX_VOCABULARY_SUGGESTIONS };
 
 const suggestionSchema = z.object({
   phrase: z.string().min(1),
@@ -109,7 +102,7 @@ Look for:
 Rules:
 - "phrase" MUST be copied exactly from the transcript
 - "improvement" MUST be words they can say out loud (no adding commas or periods only)
-- Max 6 suggestions; skip tiny nitpicks
+- Max ${MAX_VOCABULARY_SUGGESTIONS} suggestions — only the highest-impact ones; skip tiny nitpicks
 - Do NOT repeat grammar fixes (could of, their/there, etc.)
 
 ${PLAIN_LANGUAGE_COACH_RULES}
@@ -137,7 +130,7 @@ ${trimmed.slice(0, 4000)}`;
       timeoutMs: getGroqCoachTimeoutMs(),
       normalize: normalizeVocabularyPayload,
     });
-    const suggestions = parsed.suggestions.slice(0, 6);
+    const suggestions = parsed.suggestions.slice(0, MAX_VOCABULARY_SUGGESTIONS);
     return {
       suggestions,
       score: computeVocabularyScore(suggestions.length, wordCount, lexicalDiversity),

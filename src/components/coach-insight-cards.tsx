@@ -1,5 +1,9 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
+import {
+  MAX_VOCABULARY_SUGGESTIONS,
+  type VocabularySuggestion,
+} from "@/lib/analysis/vocabulary-types";
+import { MAX_SPEECH_PATTERNS } from "@/lib/coach/coaching-limits";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
 
 type Props = {
@@ -17,12 +21,14 @@ export function CoachInsightCards({
   acousticPatterns = [],
   vocabularySuggestions = [],
 }: Props) {
+  const wordChoices = vocabularySuggestions.slice(0, MAX_VOCABULARY_SUGGESTIONS);
+  const speechPatterns = patterns.slice(0, MAX_SPEECH_PATTERNS);
   const hasContent =
     (biggestIssue && biggestIssue.trim()) ||
     (strength && strength.trim()) ||
-    patterns.length > 0 ||
+    speechPatterns.length > 0 ||
     acousticPatterns.length > 0 ||
-    vocabularySuggestions.length > 0;
+    wordChoices.length > 0;
   if (!hasContent) return null;
 
   return (
@@ -49,14 +55,17 @@ export function CoachInsightCards({
         </Card>
       ) : null}
 
-      {vocabularySuggestions.length > 0 ? (
+      {wordChoices.length > 0 ? (
         <Card className="border-violet-500/20 bg-violet-500/5">
           <CardHeader>
             <CardTitle className="text-lg">Simpler word choices</CardTitle>
-            <CardDescription>Same idea — said in a clearer way. Plain tips, no fancy terms.</CardDescription>
+            <CardDescription>
+              Up to {MAX_VOCABULARY_SUGGESTIONS} clearer alternatives — secondary to grammar and
+              pronunciation.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {vocabularySuggestions.map((s, i) => (
+            {wordChoices.map((s, i) => (
               <div
                 key={`${s.phrase}-${i}`}
                 className="rounded-xl border border-border/60 bg-muted/15 p-4"
@@ -74,14 +83,14 @@ export function CoachInsightCards({
         </Card>
       ) : null}
 
-      {patterns.length > 0 ? (
+      {speechPatterns.length > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Patterns in your speech</CardTitle>
             <CardDescription>Specific habits with evidence from what you said.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {patterns.map((p, i) => (
+            {speechPatterns.map((p, i) => (
               <div key={`${p.pattern}-${i}`} className="rounded-xl border border-border/60 bg-muted/15 p-4">
                 <p className="font-medium text-foreground">{p.pattern}</p>
                 <blockquote className="mt-2 border-l-2 border-primary/40 pl-3 text-sm italic text-muted-foreground">

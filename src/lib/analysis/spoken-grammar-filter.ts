@@ -27,6 +27,37 @@ function normalizePhrase(s: string): string {
     .trim();
 }
 
+/** Expand common contractions so "it is" and "it's" compare equal. */
+export function expandSpokenContractions(s: string): string {
+  return normalizePhrase(s)
+    .replace(/\b(i)'m\b/g, "$1 am")
+    .replace(/\b(you|we|they)'re\b/g, "$1 are")
+    .replace(/\b(he|she|it)'s\b/g, "$1 is")
+    .replace(/\b(i|you|we|they)'ve\b/g, "$1 have")
+    .replace(/\b(he|she|it)'s\b/g, "$1 has") // after is — rare; leave as is-expansion first
+    .replace(/\b(i|you|he|she|it|we|they)'d\b/g, "$1 would")
+    .replace(/\b(i|you|he|she|it|we|they)'ll\b/g, "$1 will")
+    .replace(/\b(do|does|did|is|are|was|were|has|have|had|would|could|should|must|can)n't\b/g, "$1 not")
+    .replace(/\bwon't\b/g, "will not")
+    .replace(/\bcan't\b/g, "cannot")
+    .replace(/\bain't\b/g, "is not")
+    .replace(/'/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * True when the only difference is contraction ↔ full form (both grammatically fine).
+ * e.g. "it is" → "it's", "do not" → "don't"
+ */
+export function isContractionOnlyStyleChange(error: string, correction: string): boolean {
+  const a = expandSpokenContractions(error);
+  const b = expandSpokenContractions(correction);
+  if (!a || !b || a !== b) return false;
+  // Must actually differ in surface form (otherwise not a "change")
+  return normalizePhrase(error) !== normalizePhrase(correction);
+}
+
 /** True when correction changes only punctuation/spacing around the same words. */
 export function correctionOnlyAddsPunctuation(error: string, correction: string): boolean {
   const a = normalizePhrase(error);
@@ -58,6 +89,7 @@ export function filterSpokenGrammarErrors<T extends SpokenGrammarError>(
 ): T[] {
   return errors.filter((e) => {
     if (isPunctuationCentricFeedback(e)) return false;
+    if (isContractionOnlyStyleChange(e.error, e.correction)) return false;
     if (!phraseAppearsInTranscript(e.error, transcript)) return false;
     return true;
   });

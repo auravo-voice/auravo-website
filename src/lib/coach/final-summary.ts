@@ -6,6 +6,7 @@ import type { VoiceAnalysis } from "@/lib/analysis/scoring";
 import type { AcousticFeatures } from "@/lib/audio/acoustic";
 import type { VocabularySuggestion } from "@/lib/analysis/vocabulary-analysis";
 import type { AcousticCoachingPattern, CoachingPattern } from "@/lib/coach/transcript-analysis";
+import { MAX_SPEECH_PATTERNS } from "@/lib/coach/coaching-limits";
 import { analyzeTranscriptWithCoachingFallback } from "@/lib/coach/fallbacks";
 import {
   isValidRecommendationSet,
@@ -160,7 +161,7 @@ export async function generateFinalCoachingSummary(
     !transcriptInsights.biggest_issue &&
     !transcriptInsights.strength;
 
-  const patterns = transcriptInsights.patterns.slice(0, 6);
+  const patterns = transcriptInsights.patterns.slice(0, MAX_SPEECH_PATTERNS);
   const acousticPatterns = transcriptInsights.acoustic_patterns.slice(0, 4);
   const biggestIssue = transcriptInsights.biggest_issue ?? fallback.biggestIssue;
   const strength = transcriptInsights.strength ?? fallback.strength;
